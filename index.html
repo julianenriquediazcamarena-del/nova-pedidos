@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nova Pedidos</title>
+  <meta name="theme-color" content="#0c0c0c">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <!-- Solo se ejecuta código de la propia app y solo se habla con Supabase: bloquea scripts inyectados. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://*.supabase.co; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icono-192.png">
+  <link rel="apple-touch-icon" href="icons/icono-192.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <aside class="lateral" id="lateral">
+    <a class="marca" href="#/"><img src="img/wordmark.png" alt="Impresos Nova"></a>
+    <nav class="menu" id="menu"></nav>
+    <div class="usuario-actual" id="usuario-actual"></div>
+    <div class="estado-sync" id="estado-sync"></div>
+  </aside>
+
+  <header class="barra-movil">
+    <img src="img/isotipo.png" alt="" class="iso">
+    <strong id="titulo-movil">Inicio</strong>
+    <span class="estado-sync mini" id="estado-sync-movil"></span>
+  </header>
+
+  <main id="vista" class="vista" tabindex="-1"></main>
+
+  <nav class="pestanas" id="pestanas"></nav>
+
+  <div class="modal-fondo" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-cabeza"><h2 id="modal-titulo"></h2><button class="btn-icono" data-cerrar aria-label="Cerrar">✕</button></div>
+      <div id="modal-cuerpo"></div>
+    </div>
+  </div>
+  <div class="aviso" id="aviso" role="status"></div>
+  <div id="impresion" class="impresion"></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/precios.js"></script>
+  <script src="js/kpis.js"></script>
+  <script src="js/graficas.js"></script>
+  <script src="js/playeras.js"></script>
+  <script src="js/lineas.js"></script>
+  <script src="js/nota-imagen.js"></script>
+  <script src="js/vistas/panel.js"></script>
+  <script src="js/vistas/catalogo.js"></script>
+  <script src="js/vistas/calculadora.js"></script>
+  <script src="js/vistas/cotizaciones.js"></script>
+  <script src="js/vistas/pedidos.js"></script>
+  <script src="js/vistas/contactos.js"></script>
+  <script src="js/vistas/ajustes.js"></script>
+  <script src="js/vistas/desempeno.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
