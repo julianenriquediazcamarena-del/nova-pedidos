@@ -36,7 +36,7 @@
           ${esPedido ? `${(d.pagos || []).length ? d.pagos.map((p, i) => `<span>${i === 0 ? 'Anticipo' : 'Abono'} · ${esc(u.fecha(p.fecha, { day: 'numeric', month: 'short' }))} · ${esc(p.metodo || 'Efectivo')}</span><span>${u.dinero(p.monto)}</span>`).join('') : '<span>Anticipo</span><span>Sin anticipo</span>'}
             <strong>${t.total - pagado > 0.004 ? 'Resta por pagar' : 'Pagado'}</strong><strong>${t.total - pagado > 0.004 ? u.dinero(t.total - pagado) : '✓'}</strong>` : ''}
         </div>
-        ${d.notas ? `<p><strong>Notas:</strong> ${esc(d.notas).replace(/\n/g, '<br>')}</p>` : ''}
+        ${d.notas && !esPedido ? `<p><strong>Notas:</strong> ${esc(d.notas).replace(/\n/g, '<br>')}</p>` : ''}
         ${esPedido ? '' : `<p class="chico">Precios con IVA incluido. Tiempo de entrega a partir de la confirmación y el anticipo.</p>`}
         <div class="pie">${esc(neg.nombre)} · ${esc(neg.direccion)} · WhatsApp ${esc(neg.telefono)}<br><em>${esc(neg.lema)}</em></div>
       </div>`;

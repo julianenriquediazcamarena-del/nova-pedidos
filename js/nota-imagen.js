@@ -185,8 +185,8 @@
       lineasPago.forEach(l => { texto(ctx, l, M + 16, y, F.normal, C.texto); y += 34; });
     }
 
-    // Notas
-    if (d.notas) {
+    // Notas: solo en la cotización ("Notas para el cliente"). Las del pedido son internas y no salen en la nota.
+    if (d.notas && !esPedido) {
       y += 30;
       texto(ctx, 'NOTAS', M, y, F.etiqueta, C.tenue);
       y += 36;

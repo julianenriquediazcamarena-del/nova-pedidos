@@ -349,7 +349,7 @@
           <div>
             <div class="tarjeta"><h2>Cliente</h2><div id="pe-cliente"></div></div>
             <div class="tarjeta"><h2>Conceptos</h2><div id="pe-lineas"></div></div>
-            <div class="tarjeta"><h2>Notas</h2><textarea id="pe-notas" placeholder="Medidas, colores, archivo del diseño, quién lo atiende…">${esc(doc.notas || '')}</textarea>
+            <div class="tarjeta"><h2>Notas internas</h2><p class="chico tenue" style="margin:-6px 0 8px">Solo las ve el equipo: no salen en la nota del cliente, igual que las fotos.</p><textarea id="pe-notas" placeholder="Medidas, colores, archivo del diseño, quién lo atiende…">${esc(doc.notas || '')}</textarea>
               <div class="etiqueta" style="margin:12px 0 4px">Fotos: logo, dibujo, idea o nota del cliente</div><div id="pe-fotos"></div></div>
             <div class="tarjeta"><h2>Factura</h2><div id="pe-factura"></div></div>
           </div>
