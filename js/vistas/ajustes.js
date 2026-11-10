@@ -166,7 +166,7 @@
     const yaConectada = A.sync.configurada();
     cuerpo.innerHTML = `
       <p class="chico tenue" style="margin-top:-6px">${yaConectada
-        ? 'La app ya está conectada a la base del negocio. Entra con el correo y la contraseña que te dio el dueño.'
+        ? 'Entra con tu correo y contraseña. Las cuentas se crean en Supabase (Authentication → Users → Add user): el dueño crea la suya primero y después las de su equipo.'
         : A.requiereSesion()
           ? 'Abre el enlace de invitación que te mandó el dueño, o captura aquí los datos de la base del negocio.'
           : 'Mientras no entres, todo se guarda solo en este dispositivo. Para trabajar en equipo, conecta la base de Supabase del negocio (los pasos están en LEEME.md) o abre el enlace de invitación que te mandaron.'}</p>
@@ -203,7 +203,7 @@
         A.aviso(`Hola, ${A.sync.nombreUsuario()}. ${A.sync.estado().mensaje}`);
         A.recargarVista();
       } catch (err) {
-        A.aviso('No se pudo entrar: ' + (/invalid login/i.test(err.message) ? 'correo o contraseña incorrectos' : err.message));
+        A.aviso('No se pudo entrar: ' + (/invalid login/i.test(err.message) ? 'correo o contraseña incorrectos, o la cuenta todavía no existe en Supabase' : err.message));
         b.disabled = false; b.textContent = 'Entrar';
       }
     });
