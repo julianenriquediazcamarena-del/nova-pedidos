@@ -156,6 +156,8 @@
     enlaceInvitacion() {
       const c = config();
       if (!c) return '';
+      // Con la conexión fija en config.js basta el link normal de la app.
+      if (c.fija) return `${location.origin}${location.pathname}`;
       const datos = btoa(JSON.stringify({ u: c.url, k: c.clave })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       return `${location.origin}${location.pathname}#/conectar/${datos}`;
     },

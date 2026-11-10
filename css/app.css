@@ -489,3 +489,5 @@ body.bloqueado .vista { margin: 0 auto; }
 .logo-entrada { background: var(--negro); border-radius: var(--radio); padding: 22px; display: flex; justify-content: center; }
 .logo-entrada img { width: 200px; }
 .pantalla-entrada .tarjeta + .tarjeta { margin-top: 0; }
+.paso-equipo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 0; border-top: 1px dashed var(--borde); }
+.paso-equipo:first-of-type { border-top: 0; }

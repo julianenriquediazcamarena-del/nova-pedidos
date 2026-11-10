@@ -219,6 +219,9 @@
     const yo = (A.sync.perfil() || {}).id;
     const enlace = A.sync.enlaceInvitacion();
     const textoInvitacion = `Te invito a la app de pedidos de ${A.db.ajustes().negocio.nombre}. Ábrela aquí y entra con el correo y la contraseña que te di: ${enlace}`;
+    // Liga directa al formulario de "crear usuario" del proyecto en Supabase.
+    const ref = (() => { try { return new URL((A.sync.config() || {}).url).hostname.split('.')[0]; } catch { return ''; } })();
+    const ligaSupabase = ref ? `https://supabase.com/dashboard/project/${ref}/auth/users?new=true` : 'https://supabase.com/dashboard/projects';
     cuerpo.innerHTML = `
       <div class="lista">${lista.map(p => `
         <form class="miembro" data-id="${p.id}">
@@ -233,17 +236,23 @@
           <div class="chico tenue" style="margin-top:4px">${esc(p.email || '')}${p.rol === 'pendiente' ? ' · <strong style="color:var(--ambar)">Esperando tu aprobación</strong>' : ''}</div>
         </form>`).join('')}</div>
       <div class="separador"></div>
-      <h3 style="margin-bottom:6px">Agregar a alguien</h3>
-      <ol class="pasos-lista chico">
-        <li>En <strong>supabase.com</strong>, abre tu proyecto → <strong>Authentication → Users → Add user → Create new user</strong>. Escribe su correo y una contraseña y marca <em>Auto Confirm User</em>.</li>
-        <li>Mándale este enlace junto con su contraseña. Al abrirlo, la app queda conectada y solo tiene que entrar.</li>
-        <li>Cuando entre por primera vez aparecerá aquí como <strong>Sin acceso</strong>: no ve nada hasta que le pongas el rol <strong>Colaborador</strong> y su nombre (el nombre sale en el historial de los pedidos).</li>
-      </ol>
-      <div class="fila" style="gap:8px;margin-top:8px">
-        <input type="text" readonly value="${esc(enlace)}" id="eq-enlace" style="flex:1 1 220px">
-        <button type="button" class="btn" id="eq-copiar">Copiar enlace</button>
-        <a class="btn verde" target="_blank" rel="noopener" href="${esc(u.linkWhatsApp('', textoInvitacion))}">Enviar por WhatsApp</a>
-      </div>
+      <h3 style="margin-bottom:10px">Agregar a alguien (3 pasos)</h3>
+      <div class="paso-equipo"><b class="marca-num grande">1</b><div>
+        <strong>Crea su cuenta en Supabase.</strong>
+        <div class="chico tenue">Se abre el formulario "Create a new user": escribe su correo y una contraseña que tú le inventes (anótala), deja marcado <em>Auto confirm user</em> y toca <em>Create user</em>.</div>
+        <a class="btn chico" style="margin-top:6px" href="${esc(ligaSupabase)}" target="_blank" rel="noopener">Abrir Supabase para crear la cuenta</a></div></div>
+      <div class="paso-equipo"><b class="marca-num grande">2</b><div>
+        <strong>Mándale el link de la app y su contraseña.</strong>
+        <div class="chico tenue">Por WhatsApp va el mensaje con el link listo; la contraseña mándasela tú aparte.</div>
+        <div class="fila" style="gap:8px;margin-top:6px">
+          <input type="text" readonly value="${esc(enlace)}" id="eq-enlace" style="flex:1 1 200px;min-height:34px">
+          <button type="button" class="btn chico" id="eq-copiar">Copiar link</button>
+          <a class="btn chico verde" target="_blank" rel="noopener" href="${esc(u.linkWhatsApp('', textoInvitacion))}">Enviar por WhatsApp</a>
+        </div></div></div>
+      <div class="paso-equipo"><b class="marca-num grande">3</b><div>
+        <strong>Cuando entre, apruébalo aquí arriba.</strong>
+        <div class="chico tenue">Aparece en la lista como <em>Sin acceso</em> (no ve nada todavía). Cámbialo a <strong>Colaborador</strong>, escribe su nombre y toca <strong>Guardar</strong>.</div>
+        <button type="button" class="btn chico" style="margin-top:6px" id="eq-actualizar">Actualizar lista</button></div></div>
       <p class="chico tenue" style="margin-top:10px">Los colaboradores ven pedidos, cotizaciones, clientes, precios y la calculadora. No ven costos, ganancias, Desempeño, gastos ni Ajustes, y no pueden borrar ni cambiar precios. Para quitarle el acceso a alguien, ponle <strong>Sin acceso</strong> aquí o bórralo en Supabase → Authentication → Users.</p>`;
     cuerpo.querySelectorAll('.miembro').forEach(f => f.addEventListener('submit', async e => {
       e.preventDefault();
@@ -256,6 +265,7 @@
         pintarEquipo(cuerpo);
       } catch (err) { A.aviso('No se pudo guardar: ' + err.message); }
     }));
+    cuerpo.querySelector('#eq-actualizar').addEventListener('click', () => pintarEquipo(cuerpo));
     cuerpo.querySelector('#eq-copiar').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(enlace); A.aviso('Enlace copiado'); }
       catch { cuerpo.querySelector('#eq-enlace').select(); A.aviso('Selecciónalo y cópialo'); }
