@@ -97,6 +97,11 @@
         if (e.target.dataset.c) {
           l[e.target.dataset.c] = Number.isFinite(v) ? v : 0;
           if (e.target.dataset.c === 'precioUnit' && l.tipo === 'playera') l.precioManual = true;
+          // Un vendedor puede subir el precio, pero no bajarlo de lo que cobra el negocio.
+          if (e.target.dataset.c === 'precioUnit' && l.precioBase != null && A.esVendedor() && l.precioUnit < l.precioBase) {
+            e.target.classList.add('invalido');
+            e.target.title = `Mínimo ${u.dinero(l.precioBase)}`;
+          } else e.target.classList.remove('invalido');
         }
         if (e.target.dataset.m) {
           l.medidas = l.medidas || {};
@@ -104,6 +109,17 @@
           fila.querySelector('[data-c=cantidad]').readOnly = !!(l.medidas.ancho && l.medidas.alto);
         }
         refrescar();
+      };
+      cont.onchange = e => {
+        const fila = e.target.closest('.linea-ed[data-i]');
+        if (!fila || e.target.dataset.c !== 'precioUnit') return;
+        const l = doc.lineas[fila.dataset.i];
+        if (l.precioBase != null && A.esVendedor() && l.precioUnit < l.precioBase) {
+          l.precioUnit = l.precioBase;
+          e.target.classList.remove('invalido');
+          A.aviso(`No se puede bajar de ${u.dinero(l.precioBase)}: es lo que cobra el negocio.`);
+          refrescar();
+        }
       };
       cont.onclick = e => {
         const q = e.target.closest('[data-quitar]');
@@ -130,7 +146,7 @@
             const lista = A.precios.buscarProductos(c.querySelector('#bp').value).slice(0, 60);
             c.querySelector('#rp').innerHTML = lista.map(p => `<button class="resultado" data-id="${p.id}">
               <span><span class="clave">${esc(p.clave)}</span> <strong>${esc(p.categoria)}</strong> · ${esc(p.descripcion)}</span>
-              <strong class="num">${p.precio == null ? 'A cotizar' : u.dinero(p.precio)}</strong></button>`).join('') || '<div class="vacio">Sin resultados</div>';
+              <strong class="num">${p.precio == null ? 'A cotizar' : u.dinero(A.precios.paraVendedor(p.precio, p))}</strong></button>`).join('') || '<div class="vacio">Sin resultados</div>';
           };
           c.querySelector('#bp').addEventListener('input', pintar);
           c.querySelector('#bp').addEventListener('keydown', e => { if (e.key === 'Enter') { const b = c.querySelector('.resultado'); b && b.click(); } });
@@ -139,10 +155,10 @@
             if (!b) return;
             const p = A.db.obtener('productos', b.dataset.id);
             A.modal.cerrar();
-            agregar({
+            agregar(A.precios.lineaDeVendedor({
               tipo: 'producto', clave: p.clave, categoria: p.categoria, descripcion: `${p.categoria} · ${p.descripcion}`, unidad: p.unidad,
               cantidad: 1, precioUnit: p.precio || 0, dias: p.dias, fabricacion: p.fabricacion,
-            });
+            }));
           });
           pintar();
         },
@@ -157,7 +173,7 @@
           <p class="chico tenue" style="margin-top:-6px">Elige el nivel como referencia y ajusta el precio según el trabajo.</p>
           <div class="opciones-diseno">${tipos.map((t, i) => `<label class="opcion-diseno"><input type="radio" name="tipo" value="${t.id}" ${i === 1 ? 'checked' : ''}>
             <span><strong>${esc(t.descripcion.split(' (')[0])}</strong>${t.descripcion.includes('(') ? `<span class="chico tenue"> (${esc(t.descripcion.split(' (').slice(1).join(' ('))}</span>` : ''}</span>
-            <span class="num">${u.dinero(t.precio)}</span></label>`).join('')}</div>
+            <span class="num">${u.dinero(A.precios.paraVendedor(t.precio, t))}</span></label>`).join('')}</div>
           <div class="fila" style="margin-top:12px">
             <div class="campo"><label for="dis-p">Precio a cobrar (IVA incl.)</label><input type="number" id="dis-p" name="precio" step="1" min="0" required></div>
             <div class="campo" style="flex:2 1 220px"><label for="dis-n">Detalle (opcional)</label><input type="text" id="dis-n" name="nota" placeholder="Ej. invitación de XV años, 2 propuestas"></div>
@@ -167,7 +183,7 @@
         </form>`, {
         alAbrir(c) {
           const f = c.querySelector('#fdis');
-          const precioDe = () => (A.db.obtener('productos', f.tipo.value) || {}).precio || 0;
+          const precioDe = () => { const t = A.db.obtener('productos', f.tipo.value) || {}; return A.precios.paraVendedor(t.precio || 0, t); };
           const sincronizar = () => { f.precio.value = f.incluido.checked ? 0 : precioDe(); f.precio.disabled = f.incluido.checked; };
           f.addEventListener('change', e => { if (e.target.name === 'tipo' || e.target.name === 'incluido') sincronizar(); });
           sincronizar();
@@ -177,11 +193,11 @@
             const t = A.db.obtener('productos', f.tipo.value);
             const nota = f.nota.value.trim();
             A.modal.cerrar();
-            agregar({
+            agregar(A.precios.lineaDeVendedor({
               tipo: 'producto', clave: t.clave, categoria: 'Diseño', fabricacion: t.fabricacion, dias: t.dias, unidad: 'pieza', cantidad: 1,
               descripcion: `Diseño · ${t.descripcion.split(' (')[0]}${nota ? ` — ${nota}` : ''}${f.incluido.checked ? ' (incluido)' : ''}`,
               precioUnit: f.incluido.checked ? 0 : Math.max(0, Number(f.precio.value) || 0),
-            });
+            }, { precioFinal: true }));
           });
         },
       });
@@ -203,7 +219,7 @@
             e.preventDefault();
             const d = u.datosForm(e.target);
             A.modal.cerrar();
-            agregar({ tipo: 'libre', categoria: 'Otros', descripcion: d.descripcion, cantidad: Number(d.cantidad) || 1, precioUnit: Number(d.precioUnit) || 0, dias: Number(d.dias) || 0, unidad: 'pieza' });
+            agregar(A.precios.lineaDeVendedor({ tipo: 'libre', categoria: 'Otros', descripcion: d.descripcion, cantidad: Number(d.cantidad) || 1, precioUnit: Number(d.precioUnit) || 0, dias: Number(d.dias) || 0, unidad: 'pieza' }, { precioFinal: true }));
           });
         },
       });
@@ -259,7 +275,9 @@
     const existente = A.db.todos('contactos').find(c =>
       u.normalizar(c.nombre) === u.normalizar(doc.clienteNombre) ||
       (doc.telefono && u.soloDigitos(c.telefono).slice(-10) === u.soloDigitos(doc.telefono).slice(-10)));
-    const c = existente || A.db.guardar('contactos', { tipo: 'cliente', nombre: doc.clienteNombre, telefono: doc.telefono || '', origen: doc.origenCliente || '' });
+    // Si lo registra un vendedor, el cliente queda ligado a él (para sus comisiones y para que solo él lo vea).
+    const vend = A.esVendedor() ? { vendedorId: (A.sync.perfil() || {}).id, vendedorNombre: A.sync.nombreUsuario() } : {};
+    const c = existente || A.db.guardar('contactos', { tipo: 'cliente', nombre: doc.clienteNombre, telefono: doc.telefono || '', origen: doc.origenCliente || (A.esVendedor() ? 'Vendedor' : ''), ...vend });
     doc.contactoId = c.id;
   };
 })(window.App);

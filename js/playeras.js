@@ -49,7 +49,20 @@
     return `${cuello}, ${manga}`;
   }
 
-  function claveGrupo(d) { return [d.codigo, d.color, d.tecnica, (d.ubicaciones || []).join('+')].join('|'); }
+  function claveGrupo(d) { return [d.codigo, d.color, d.colorExacto || '', d.tecnica, (d.ubicaciones || []).join('+')].join('|'); }
+
+  // Tallas que se piden al proveedor dentro de cada rango de precio del catálogo.
+  const TALLAS_EXACTAS = {
+    'CH-EG': ['CH', 'M', 'G', 'EG'], 'ECH-EG': ['ECH', 'CH', 'M', 'G', 'EG'], EEG: ['EEG'], EEEG: ['EEEG'],
+    'CH(4A)-EG(14A)': ['4', '6', '8', '10', '12', '14'], 'CH(4A)-EEG(16A)': ['4', '6', '8', '10', '12', '14', '16'], '1-2-3': ['1', '2', '3'],
+  };
+  const exactas = t => TALLAS_EXACTAS[t] || [t];
+  // Colores sugeridos (el proveedor puede tener más; se puede escribir cualquiera).
+  const COLORES_COMUNES = ['Negro', 'Blanco', 'Marino', 'Rojo', 'Royal', 'Gris jaspe', 'Gris oxford', 'Vino', 'Verde botella', 'Verde bandera',
+    'Amarillo', 'Naranja', 'Rosa', 'Turquesa', 'Morado', 'Kaki', 'Chocolate', 'Arena', 'Azul cielo', 'Verde neón', 'Amarillo neón', 'Naranja neón', 'Rosa neón'];
+  // Color exacto por defecto según el tipo de color del catálogo ('' = hay que escribirlo).
+  const colorPorDefecto = c => (c === 'Blanco' ? 'Blanco' : c === 'Jaspe' ? 'Gris jaspe' : '');
+  const etiquetaTalla = d => d.tallaExacta || A.precios.nombreTalla(d.talla);
 
   function textoUbicaciones(ub) {
     if (!ub || !ub.length) return '';
@@ -58,9 +71,12 @@
   }
 
   function lineaPlayera(m, d, cantidad) {
+    // Hecha por un vendedor: guarda su porcentaje para que el precio se recalcule con su comisión.
+    const vend = A.esVendedor() ? { comisionPct: A.precios.comisionPct({ categoria: 'Playeras', clave: m.codigo }) } : {};
     return {
+      ...vend,
       tipo: 'playera', clave: m.codigo, categoria: 'Playeras', unidad: 'pieza', cantidad, precioUnit: 0,
-      descripcion: `${m.descripcion} ${m.genero} · Talla ${d.talla} · ${d.color}`,
+      descripcion: `${m.descripcion} ${m.genero} · Talla ${d.tallaExacta || d.talla} · ${d.colorExacto || d.color}`,
       detalle: { ...d, planchados: d.ubicaciones.length },
     };
   }
@@ -126,8 +142,10 @@
         const previo = conf || {};
         // Respeta el filtro de color; si no hay, conserva el color que se venía usando.
         const permitidos = sel.colores.filter(c => !filtros.color || grupoColor(c).includes(filtros.color));
+        const color = permitidos.includes(previo.color) ? previo.color : permitidos[0] || sel.colores[0];
         conf = {
-          color: permitidos.includes(previo.color) ? previo.color : permitidos[0] || sel.colores[0],
+          color,
+          colorExacto: color === previo.color && previo.colorExacto ? previo.colorExacto : colorPorDefecto(color),
           tecnica: previo.tecnica || (sel.at.tipo === 'Para sublimar' ? 'Sublimación' : 'DTF'),
           ubicaciones: previo.ubicaciones || ['Frente'],
           cantidades: {},
@@ -140,6 +158,11 @@
       function piezasConfig() { return conf ? Object.values(conf.cantidades).reduce((s, n) => s + (Number(n) || 0), 0) : 0; }
       function piezasApartado() { return apartado.reduce((s, l) => s + l.cantidad, 0); }
       function nivelActual() { return A.precios.nivel(piezasPrevias + piezasApartado() + piezasConfig()); }
+      // Precio por pieza de un rango de tallas (el vendedor lo ve con su comisión).
+      function precioDe(talla, nivel) {
+        const r = A.precios.precioPlayera({ codigo: sel.codigo, talla, color: conf.color, tecnica: conf.tecnica, planchados: conf.ubicaciones.length }, nivel);
+        return r ? A.precios.paraVendedor(r.unitario, { categoria: 'Playeras', clave: sel.codigo }) : null;
+      }
 
       function pintarConfig() {
         const c = $('[data-config]');
@@ -155,7 +178,10 @@
               <button type="button" class="btn-icono" data-cerrar-config aria-label="Quitar selección">✕</button></div>
 
             <div class="paso-conf"><span class="etiqueta">1. Color de la playera</span>
-              <div class="segmentos">${sel.colores.map(col => `<button type="button" data-color="${esc(col)}" class="${conf.color === col ? 'activo' : ''}">${esc(col === 'Todos' ? 'Cualquier color' : col)}</button>`).join('')}</div></div>
+              <div class="segmentos">${sel.colores.map(col => `<button type="button" data-color="${esc(col)}" class="${conf.color === col ? 'activo' : ''}">${esc(col === 'Todos' ? 'Cualquier color' : col)}</button>`).join('')}</div>
+              ${conf.color === 'Blanco' ? '' : `<div class="campo" style="margin:8px 0 0;max-width:280px"><label for="pl-colex">¿Qué color exactamente?</label>
+                <input type="text" id="pl-colex" data-color-exacto list="pl-colores" value="${esc(conf.colorExacto || '')}" placeholder="Ej. Negro, Marino, Rojo">
+                <datalist id="pl-colores">${COLORES_COMUNES.map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>`}</div>
 
             <div class="paso-conf"><span class="etiqueta">2. Técnica</span>
               <div class="segmentos">${TECNICAS.map(t => `<button type="button" data-tec="${t.id}" class="${conf.tecnica === t.id ? 'activo' : ''}">${t.id}</button>`).join('')}</div>
@@ -167,13 +193,18 @@
 
             <div class="paso-conf"><span class="etiqueta">4. Piezas por talla</span>
               <div class="tallas">${sel.tallas.map(t => {
-                const r = A.precios.precioPlayera({ codigo: sel.codigo, talla: t, color: conf.color, tecnica: conf.tecnica, planchados: conf.ubicaciones.length }, nivel);
-                const n = conf.cantidades[t] || 0;
-                return `<div class="talla ${r ? '' : 'no-hay'}">
-                  <div><strong>${esc(A.precios.nombreTalla(t))}</strong><div class="chico tenue">${r ? `${u.dinero(r.unitario)} c/u` : 'No viene en este color'}</div></div>
-                  ${r ? `<div class="contador"><button type="button" data-menos="${esc(t)}" aria-label="Menos">−</button>
-                    <input type="number" min="0" inputmode="numeric" data-cant="${esc(t)}" value="${n || ''}" placeholder="0" aria-label="Piezas talla ${esc(t)}">
-                    <button type="button" data-mas="${esc(t)}" aria-label="Más">+</button></div>` : '<div></div>'}
+                const precio = precioDe(t, nivel);
+                return `<div class="talla-grupo ${precio != null ? '' : 'no-hay'}">
+                  <div class="talla-cab"><strong>${esc(A.precios.nombreTalla(t))}</strong>
+                    <span class="chico tenue" data-precio-grupo="${esc(t)}">${precio != null ? `${u.dinero(precio)} c/u` : 'No viene en este color'}</span></div>
+                  ${precio != null ? `<div class="tallas-exactas">${exactas(t).map(x => {
+                    const k = `${t}|${x}`;
+                    const n = conf.cantidades[k] || 0;
+                    return `<div class="talla-exacta"><span class="talla-nombre">${esc(x)}</span>
+                      <div class="contador"><button type="button" data-menos="${esc(k)}" aria-label="Menos ${esc(x)}">−</button>
+                        <input type="number" min="0" inputmode="numeric" data-cant="${esc(k)}" value="${n || ''}" placeholder="0" aria-label="Piezas talla ${esc(x)}">
+                        <button type="button" data-mas="${esc(k)}" aria-label="Más ${esc(x)}">+</button></div></div>`;
+                  }).join('')}</div>` : ''}
                 </div>`;
               }).join('')}</div></div>
 
@@ -187,9 +218,9 @@
         if (!r) return;
         const nivel = nivelActual();
         const piezas = piezasConfig();
-        const total = Object.entries(conf.cantidades).reduce((s, [t, n]) => {
-          const p = A.precios.precioPlayera({ codigo: sel.codigo, talla: t, color: conf.color, tecnica: conf.tecnica, planchados: conf.ubicaciones.length }, nivel);
-          return s + (p ? p.unitario * n : 0);
+        const total = Object.entries(conf.cantidades).reduce((s, [k, n]) => {
+          const p = precioDe(k.split('|')[0], nivel);
+          return s + (p ? p * n : 0);
         }, 0);
         r.innerHTML = `<div><strong>${piezas} pieza${piezas === 1 ? '' : 's'}</strong> · ${u.dinero(total)}</div>
           <button type="button" class="btn" data-al-apartado ${piezas && conf.ubicaciones.length ? '' : 'disabled'}>＋ Apartar y elegir otro modelo</button>`;
@@ -199,11 +230,9 @@
       function refrescarPrecios() {
         if (sel) {
           const nivel = nivelActual();
-          u.$$('.talla', cont).forEach((fila, i) => {
-            const t = sel.tallas[i];
-            const p = A.precios.precioPlayera({ codigo: sel.codigo, talla: t, color: conf.color, tecnica: conf.tecnica, planchados: conf.ubicaciones.length }, nivel);
-            const etq = fila.querySelector('.chico');
-            if (p && etq) etq.textContent = `${u.dinero(p.unitario)} c/u`;
+          u.$$('[data-precio-grupo]', cont).forEach(etq => {
+            const p = precioDe(etq.dataset.precioGrupo, nivel);
+            if (p != null) etq.textContent = `${u.dinero(p)} c/u`;
           });
           pintarResumenConf();
         }
@@ -212,11 +241,13 @@
 
       function apartarConfig() {
         if (!sel || !piezasConfig() || !conf.ubicaciones.length) return false;
-        sel.tallas.forEach(t => {
-          const n = Number(conf.cantidades[t]) || 0;
+        if (!(conf.colorExacto || '').trim()) { A.aviso('Escribe qué color exactamente (para pedirlo al proveedor).'); return false; }
+        Object.entries(conf.cantidades).forEach(([k, cantidad]) => {
+          const n = Number(cantidad) || 0;
           if (!n) return;
-          const d = { codigo: sel.codigo, talla: t, color: conf.color, tecnica: conf.tecnica, ubicaciones: [...conf.ubicaciones] };
-          const existente = apartado.find(l => claveGrupo(l.detalle) === claveGrupo(d) && l.detalle.talla === t);
+          const [t, x] = k.split('|');
+          const d = { codigo: sel.codigo, talla: t, tallaExacta: x, color: conf.color, colorExacto: conf.colorExacto.trim(), tecnica: conf.tecnica, ubicaciones: [...conf.ubicaciones] };
+          const existente = apartado.find(l => claveGrupo(l.detalle) === claveGrupo(d) && l.detalle.talla === t && l.detalle.tallaExacta === x);
           if (existente) existente.cantidad += n;
           else apartado.push(lineaPlayera(sel, d, n));
         });
@@ -243,12 +274,13 @@
           const m = todos.find(x => x.codigo === d.codigo);
           return `<div class="grupo-ap">
             <div class="cabeza-grupo"><div><span class="clave">${esc(d.codigo)}</span> <strong>${esc(nombreCorto(m))}</strong>
-              <div class="chico tenue">${esc(d.color)} · ${esc(d.tecnica)} · ${esc(textoUbicaciones(d.ubicaciones))}</div></div></div>
+              <div class="chico tenue">${esc(d.colorExacto || d.color)} · ${esc(d.tecnica)} · ${esc(textoUbicaciones(d.ubicaciones))}</div></div></div>
             ${items.map(({ l, i }) => {
-              const p = A.precios.precioPlayera({ ...l.detalle, planchados: l.detalle.ubicaciones.length }, nivel);
-              const sub = p ? p.unitario * l.cantidad : 0;
+              const r = A.precios.precioPlayera({ ...l.detalle, planchados: l.detalle.ubicaciones.length }, nivel);
+              const p = r ? A.precios.paraVendedor(r.unitario, { categoria: 'Playeras', clave: l.detalle.codigo }) : null;
+              const sub = p ? p * l.cantidad : 0;
               suma += sub;
-              return `<div class="dato"><span>${esc(A.precios.nombreTalla(l.detalle.talla))} × ${l.cantidad}${p ? ` <span class="chico">(${u.dinero(p.unitario)})</span>` : ''}</span>
+              return `<div class="dato"><span>Talla ${esc(etiquetaTalla(l.detalle))} × ${l.cantidad}${p ? ` <span class="chico">(${u.dinero(p)})</span>` : ''}</span>
                 <span class="num">${u.dinero(sub)} <button type="button" class="btn-icono chico" data-quitar-ap="${i}" aria-label="Quitar">✕</button></span></div>`;
             }).join('')}
           </div>`;
@@ -268,6 +300,7 @@
       // ---------- Eventos ----------
       cont.addEventListener('input', e => {
         if (e.target.dataset.f === 'q') { filtros.q = e.target.value; pintarFiltros(); pintarModelos(); return; }
+        if ('colorExacto' in e.target.dataset) { conf.colorExacto = e.target.value; return; }
         if (e.target.dataset.cant != null) {
           conf.cantidades[e.target.dataset.cant] = Math.max(0, parseInt(e.target.value, 10) || 0);
           refrescarPrecios();
@@ -281,7 +314,7 @@
           pintarFiltros(); pintarModelos();
         } else if (b.dataset.cod) elegir(b.dataset.cod);
         else if ('cerrarConfig' in b.dataset) { sel = null; conf = null; pintarModelos(); pintarConfig(); pintarApartado(); }
-        else if (b.dataset.color) { conf.color = b.dataset.color; pintarConfig(); pintarApartado(); }
+        else if (b.dataset.color) { conf.color = b.dataset.color; conf.colorExacto = colorPorDefecto(conf.color); pintarConfig(); pintarApartado(); }
         else if (b.dataset.tec) { conf.tecnica = b.dataset.tec; pintarConfig(); pintarApartado(); }
         else if (b.dataset.ub) {
           const ub = b.dataset.ub;
@@ -300,7 +333,7 @@
           refrescarPrecios();
         } else if ('terminar' in b.dataset) {
           if (conf && sel && piezasConfig() && !conf.ubicaciones.length) return A.aviso('Elige dónde va estampada.');
-          apartarConfig();
+          if (conf && sel && piezasConfig() && !apartarConfig()) return; // falta el color exacto
           if (!apartado.length) return;
           alTerminar(apartado.map(l => ({ ...l, detalle: { ...l.detalle } })));
         }

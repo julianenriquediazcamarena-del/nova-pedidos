@@ -32,7 +32,7 @@
             <div class="principal"><div class="titulo"><span class="clave">${esc(p.clave)}</span> ${esc(p.categoria)}</div>
               <div>${esc(p.descripcion)}</div>
               <div class="detalle">${esc(A.precios.textoDias(p.dias))} · ${esc(p.fabricacion || '')}</div></div>
-            <div class="derecha"><div class="precio-grande">${p.precio == null ? 'A cotizar' : u.dinero(p.precio)}</div>
+            <div class="derecha"><div class="precio-grande">${p.precio == null ? 'A cotizar' : u.dinero(A.precios.paraVendedor(p.precio, p))}</div>
               <div class="detalle">por ${esc(p.unidad || 'pieza')}</div></div>
           </div>`).join('')}</div>` : '<div class="vacio">Sin resultados.</div>';
       }
@@ -51,7 +51,8 @@
         const celda = (p, tec) => {
           const men = A.precios.precioPlayera({ ...p, tecnica: tec, planchados: 1 }, 'menudeo');
           const may = A.precios.precioPlayera({ ...p, tecnica: tec, planchados: 1 }, 'mayoreo');
-          return `<td class="der num">${u.dinero(men.unitario)}<div class="chico tenue">${u.dinero(may.unitario)}</div></td>`;
+          const v = x => u.dinero(A.precios.paraVendedor(x, { categoria: 'Playeras', clave: p.codigo }));
+          return `<td class="der num">${v(men.unitario)}<div class="chico tenue">${v(may.unitario)}</div></td>`;
         };
         c.querySelector('#cg-lista').innerHTML = `
           <div class="nota-info">Precio por pieza con 1 planchado: <strong>arriba menudeo</strong> (1 a ${aj.umbralMayoreo - 1} piezas), <strong>abajo mayoreo</strong> (${aj.umbralMayoreo} o más). Cada planchado extra suma ${u.dinero(aj.planchado.menudeo)} / ${u.dinero(aj.planchado.mayoreo)}. Para cotizar con filtros usa <a href="#/calculadora">Calculadora → Playeras</a>.${A.esDueno() ? ' Toca una fila para cambiar el precio de la playera.' : ''}</div>
@@ -106,7 +107,7 @@
         <div class="fila">
           <div class="campo"><label for="pr-p">Precio (IVA incl.)</label><input type="number" id="pr-p" name="precio" step="0.01" min="0" value="${p.precio ?? ''}" placeholder="Vacío = a cotizar"></div>
           <div class="campo"><label for="pr-u">Por</label><select id="pr-u" name="unidad">${UNIDADES.map(x => `<option ${x === p.unidad ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
-          <div class="campo"><label for="pr-costo">Te cuesta (opcional)</label><input type="number" id="pr-costo" name="costo" step="0.01" min="0" value="${p.costo ?? ''}" placeholder="Para la ganancia"></div>
+          <div class="campo"><label for="pr-costo">Te cuesta (opcional)</label><input type="number" id="pr-costo" name="costo" step="0.01" min="0" value="${p.id ? (A.costos.de(p.id) ?? '') : ''}" placeholder="Para la ganancia">${p.id && A.costos.estimado(p.id) ? '<span class="chico tenue">Costo estimado: cámbialo por el real</span>' : ''}</div>
         </div>
         <div class="fila">
           <div class="campo"><label for="pr-dias">Días hábiles de entrega</label><input type="number" id="pr-dias" name="dias" min="0" value="${p.dias ?? ''}"></div>
@@ -125,8 +126,10 @@
           const d = u.datosForm(e.target);
           const precio = d.precio === '' ? null : u.redondear(d.precio);
           const dias = d.dias === '' ? null : Number(d.dias);
-          const costo = d.costo === '' ? null : u.redondear(d.costo);
-          A.db.guardar('productos', { ...p, ...d, clave: d.clave.toUpperCase(), precio, dias, costo, activo: true, orden: p.orden ?? 999 });
+          const { costo, ...resto } = d;
+          const guardado = A.db.guardar('productos', { ...p, ...resto, clave: d.clave.toUpperCase(), precio, dias, activo: true, orden: p.orden ?? 999 });
+          // El costo va aparte, en la colección privada del dueño.
+          if (costo !== (A.costos.de(guardado.id) ?? '').toString()) A.costos.poner(guardado.id, costo === '' ? null : costo);
           A.modal.cerrar(); A.aviso('Precio guardado'); despues();
         });
         const b = m.querySelector('#pr-borrar');
@@ -150,7 +153,7 @@
         <div class="fila">
           <div class="campo"><label for="pl-men">Precio menudeo</label><input type="number" id="pl-men" name="menudeo" step="0.01" min="0" value="${p.menudeo ?? ''}" required></div>
           <div class="campo"><label for="pl-may">Precio mayoreo</label><input type="number" id="pl-may" name="mayoreo" step="0.01" min="0" value="${p.mayoreo ?? ''}"></div>
-          <div class="campo"><label for="pl-costo">Te cuesta</label><input type="number" id="pl-costo" name="costo" step="0.01" min="0" value="${p.costo ?? ''}" placeholder="${A.db.ajustes().costoPlayeraDesdeMayoreo && p.mayoreo ? 'Vacío = ' + p.mayoreo : 'Para la ganancia'}"></div>
+          <div class="campo"><label for="pl-costo">Te cuesta</label><input type="number" id="pl-costo" name="costo" step="0.01" min="0" value="${A.costos.de(p.id) ?? ''}" placeholder="${A.costos.general().playeraDesdeMayoreo && p.mayoreo ? 'Vacío = ' + p.mayoreo : 'Para la ganancia'}"></div>
         </div>
         <div class="modal-pie"><button type="button" class="btn" data-cerrar>Cancelar</button><button class="btn primario">Guardar</button></div>
       </form>`, {
@@ -158,7 +161,8 @@
         m.querySelector('#fpl2').addEventListener('submit', e => {
           e.preventDefault();
           const d = u.datosForm(e.target);
-          A.db.guardar('playeras', { ...p, menudeo: u.redondear(d.menudeo), mayoreo: d.mayoreo === '' ? null : u.redondear(d.mayoreo), costo: d.costo === '' ? null : u.redondear(d.costo) });
+          A.db.guardar('playeras', { ...p, menudeo: u.redondear(d.menudeo), mayoreo: d.mayoreo === '' ? null : u.redondear(d.mayoreo) });
+          if (d.costo !== (A.costos.de(p.id) ?? '').toString()) A.costos.poner(p.id, d.costo === '' ? null : d.costo);
           A.modal.cerrar(); A.aviso('Precio guardado'); despues();
         });
       },

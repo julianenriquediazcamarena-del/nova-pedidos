@@ -48,20 +48,23 @@
       }
       return 'Otros';
     },
+    // Costos desde la colección privada "costos" (solo el dueño la tiene).
     costoLinea(l) {
-      const aj = A.db.ajustes();
+      const cg = A.costos.general();
       const cant = Number(l.cantidad) || 0;
       if (l.costoUnit != null) return l.costoUnit * cant;
+      if (l.categoria === 'Diseño' || /^DIS\d/.test(l.clave || '')) return 0; // trabajo propio
       if (l.tipo === 'producto') {
         const p = A.db.todos('productos', { conBorrados: true }).find(x => x.clave === l.clave);
-        return p && p.costo != null && p.costo !== '' ? Number(p.costo) * cant : null;
+        const c = p ? (A.costos.de(p.id) ?? (p.costo != null && p.costo !== '' ? Number(p.costo) : null)) : null;
+        return c == null ? null : c * cant;
       }
       if (l.tipo === 'playera') {
         const d = l.detalle || {};
         const pl = A.precios.playera(d.codigo, d.talla, d.color);
         if (!pl) return null;
-        const playera = pl.costo != null && pl.costo !== '' ? Number(pl.costo) : (aj.costoPlayeraDesdeMayoreo && pl.mayoreo ? Number(pl.mayoreo) : null);
-        const porLado = aj.costoTecnica[d.tecnica];
+        const playera = A.costos.de(pl.id) ?? (cg.playeraDesdeMayoreo && pl.mayoreo ? Number(pl.mayoreo) : null);
+        const porLado = cg.tecnicas[d.tecnica];
         if (playera == null || porLado == null || porLado === '') return null;
         return (playera + Number(porLado) * (Number(d.planchados) || 0)) * cant;
       }
@@ -74,10 +77,13 @@
       return { valor: u.redondear(valor), completo: lineas.length > 0 && !faltan.length, faltan };
     },
     // Costo que cuenta para la ganancia: el que se capturó a mano, o el estimado si está completo.
+    // La comisión del vendedor también es costo del pedido.
     costoPedido(pedido) {
-      if (pedido.costo != null && pedido.costo !== '') return { valor: Number(pedido.costo), fuente: 'real' };
+      const comision = A.comisiones ? A.comisiones.montoPedido(pedido) : 0;
+      const real = A.costos.de('ped-' + pedido.id) ?? (pedido.costo != null && pedido.costo !== '' ? Number(pedido.costo) : null);
+      if (real != null) return { valor: real + comision, fuente: 'real', comision };
       const e = A.kpis.costoEstimado(pedido);
-      return e.completo ? { valor: e.valor, fuente: 'estimado' } : { valor: null, fuente: 'falta', parcial: e.valor, faltan: e.faltan };
+      return e.completo ? { valor: e.valor + comision, fuente: 'estimado', comision } : { valor: null, fuente: 'falta', parcial: e.valor, faltan: e.faltan, comision };
     },
 
     // ---------- Indicadores de un periodo ----------

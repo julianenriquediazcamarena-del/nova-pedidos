@@ -112,7 +112,7 @@
       return `<div class="renglon con-accion">
         <span class="franja ${A.pedidos.semaforo(p)}"></span>
         <a class="principal enlace" href="#/pedido/${p.id}">
-          <div class="titulo">${esc(p.clienteNombre || 'Sin cliente')} <span class="clave">${esc(p.folio)}</span>${A.pedidos.esMaquila(p) ? ' <span class="etq-maquila">Maquila</span>' : ''}</div>
+          <div class="titulo">${esc(p.clienteNombre || 'Sin cliente')} <span class="clave">${esc(p.folio)}</span>${A.pedidos.esMaquila(p) ? ' <span class="etq-maquila">Maquila</span>' : ''}${p.vendedorNombre && !A.esVendedor() ? ` <span class="etq-maquila">Vendedor: ${esc(p.vendedorNombre)}</span>` : ''}${p.requiereFactura ? ' <span class="etq-maquila">Factura</span>' : ''}</div>
           <div class="detalle">${esc(A.pedidos.resumenLineas(p))}</div>
           <div class="detalle fila-estado">${A.pedidos.insigniaEstado(p)}<span>Entrega <strong>${esc(u.relativo(p.fechaEntrega).toLowerCase())}</strong></span>${saldo > 0 ? `<span style="color:var(--rojo-vivo)">Debe ${u.dinero(saldo)}</span>` : ''}</div>
         </a>
@@ -123,7 +123,10 @@
       const hoy = u.hoy();
       const lineas = structuredClone(base.lineas || []);
       return {
-        folio: A.db.siguienteFolio('pedidos', 'P'),
+        id: u.id(), // se fija desde el inicio para poder subir fotos antes de crear el pedido
+        folio: A.db.siguienteFolio('pedidos', A.comisiones.prefijo('P')),
+        ...(base.vendedorId ? { vendedorId: base.vendedorId, vendedorNombre: base.vendedorNombre } : A.comisiones.datosVendedor()),
+        recompra: base.vendedorId ? null : A.comisiones.recompraPara(base.contactoId),
         clienteNombre: base.clienteNombre || '', contactoId: base.contactoId || null, telefono: base.telefono || '',
         fechaRecibido: hoy, fechaEntrega: A.precios.fechaEntrega(hoy, lineas), fechaEntregaManual: false,
         lineas, total: A.precios.totales(lineas).total, pagos: [], estado: 'recibido', notas: base.notas || '',
@@ -135,6 +138,7 @@
     // Al entregar con saldo pendiente, pregunta si ya pagó. Devuelve los pagos y una nota, o null si se canceló.
     async cobroAlEntregar(p) {
       const saldo = A.pedidos.saldo(p);
+      if (A.esVendedor()) return { pagos: p.pagos || [], nota: 'Entregado por el vendedor' };
       if (saldo <= 0) return { pagos: p.pagos || [], nota: null };
       const r = await A.modal.elegir('Entregar pedido', `${p.clienteNombre || 'El cliente'} debe ${u.dinero(saldo)}. ¿Ya pagó?`,
         [['Efectivo', `Pagó ${u.dinero(saldo)} en efectivo`], ['Transferencia', 'Pagó por transferencia'], ['no', 'Entregar sin cobrar'], ['cancelar', 'Cancelar']]);
@@ -172,6 +176,70 @@
     },
   };
 
+  // ---------- Pedido al proveedor de playeras ----------
+  // Junta las playeras de los pedidos que todavía no se piden, por modelo, color y talla exacta.
+  const ORDEN_TALLA = ['1', '2', '3', '4', '6', '8', '10', '12', '14', '16', 'ECH', 'CH', 'M', 'G', 'EG', 'EEG', 'EEEG'];
+  A.pedidos.pedidoProveedor = function () {
+    const pedidos = A.pedidos.todos().filter(p => ['recibido', 'diseno', 'aprobacion', 'produccion'].includes(p.estado) && !p.playerasPedidas
+      && (p.lineas || []).some(l => l.tipo === 'playera'));
+    const grupos = new Map();
+    pedidos.forEach(p => p.lineas.filter(l => l.tipo === 'playera').forEach(l => {
+      const d = l.detalle || {};
+      const modelo = A.precios.playera(d.codigo, d.talla, d.color) || {};
+      const clave = `${d.codigo}|${d.colorExacto || d.color}`;
+      if (!grupos.has(clave)) grupos.set(clave, { codigo: d.codigo, color: d.colorExacto || d.color, nombre: `${modelo.descripcion || ''} ${modelo.genero || ''}`.trim(), tallas: new Map(), total: 0 });
+      const g = grupos.get(clave);
+      const talla = d.tallaExacta || d.talla;
+      g.tallas.set(talla, (g.tallas.get(talla) || 0) + (Number(l.cantidad) || 0));
+      g.total += Number(l.cantidad) || 0;
+    }));
+    const lista = [...grupos.values()].sort((a, b) => a.codigo.localeCompare(b.codigo) || a.color.localeCompare(b.color));
+    const tallasOrden = g => [...g.tallas.entries()].sort((a, b) => ORDEN_TALLA.indexOf(a[0]) - ORDEN_TALLA.indexOf(b[0]));
+    const total = lista.reduce((s, g) => s + g.total, 0);
+    const neg = A.db.ajustes().negocio.nombre;
+    const texto = `Pedido de playeras · ${neg} · ${u.fecha(u.hoy())}\n\n` + lista.map(g =>
+      `${g.codigo} ${g.nombre} · ${g.color}\n  ${tallasOrden(g).map(([t, n]) => `${t}: ${n}`).join(' · ')}  (${g.total} pzas)`).join('\n') + `\n\nTotal: ${total} piezas`;
+    const proveedores = A.db.todos('contactos').filter(x => x.tipo === 'proveedor' && x.telefono);
+    if (!lista.length) {
+      A.modal.abrir('Pedido al proveedor', '<p>No hay playeras pendientes de pedir. Aquí aparecen las de los pedidos en Recibido, Diseño, Aprobación o Producción que todavía no marcas como pedidas.</p><div class="modal-pie"><button class="btn" data-cerrar>Cerrar</button></div>');
+      return;
+    }
+    A.modal.abrir('Pedido al proveedor', `
+      <p class="chico tenue" style="margin-top:-6px">${pedidos.length} pedido${pedidos.length === 1 ? '' : 's'}: ${pedidos.map(p => esc(p.folio)).join(', ')}</p>
+      <div class="tabla-envoltura"><table><thead><tr><th>Modelo</th><th>Color</th><th>Tallas</th><th class="der">Piezas</th></tr></thead><tbody>
+        ${lista.map(g => `<tr><td><span class="clave">${esc(g.codigo)}</span> ${esc(g.nombre)}</td><td>${esc(g.color)}</td>
+          <td>${tallasOrden(g).map(([t, n]) => `<strong>${esc(t)}</strong> ${n}`).join(' · ')}</td><td class="der">${g.total}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="dato" style="margin-top:8px"><span>Total</span><strong>${total} piezas</strong></div>
+      ${proveedores.length ? `<div class="campo" style="margin-top:10px"><label for="pv-prov">Mandar a</label><select id="pv-prov">${proveedores.map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')}</select></div>`
+        : '<p class="chico tenue">Tip: registra a tu proveedor en Contactos (tipo Proveedor, con su WhatsApp) para mandárselo directo.</p>'}
+      <div class="modal-pie">
+        <button type="button" class="btn" id="pv-copiar">Copiar texto</button>
+        <a class="btn verde" id="pv-wa" target="_blank" rel="noopener" href="#">WhatsApp</a>
+        <button type="button" class="btn primario" id="pv-marcar">Ya lo pedí</button>
+      </div>`, {
+      ancho: true,
+      alAbrir(m) {
+        m.querySelector('#pv-copiar').addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(texto); A.aviso('Pedido copiado'); } catch { A.aviso('No se pudo copiar'); }
+        });
+        m.querySelector('#pv-wa').addEventListener('click', e => {
+          const sel = m.querySelector('#pv-prov');
+          const prov = sel ? A.db.obtener('contactos', sel.value) : null;
+          e.currentTarget.href = u.linkWhatsApp(prov ? prov.telefono : '', texto);
+        });
+        m.querySelector('#pv-marcar').addEventListener('click', () => {
+          const hoy = u.hoy();
+          pedidos.forEach(p => A.db.guardar('pedidos', { ...p, playerasPedidas: hoy,
+            historial: [...(p.historial || []), { fecha: u.ahora(), texto: 'Playeras pedidas al proveedor' }] }));
+          A.modal.cerrar();
+          A.aviso(`${pedidos.length} pedido${pedidos.length === 1 ? '' : 's'} marcado${pedidos.length === 1 ? '' : 's'}: playeras pedidas`);
+          A.recargarVista();
+        });
+      },
+    });
+  };
+
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-avanzar]');
     if (!b) return;
@@ -187,6 +255,7 @@
     { id: 'enMaquila', texto: 'En maquila', fn: p => p.estado === 'enviado' },
     { id: 'listos', texto: 'Listos', fn: p => p.estado === 'listo' },
     { id: 'cobrar', texto: 'Por cobrar', fn: p => A.pedidos.saldo(p) > 0 },
+    { id: 'facturar', texto: 'Por facturar', fn: p => A.factura.pendiente(p) },
     { id: 'entregados', texto: 'Entregados', fn: p => p.estado === 'entregado' },
     { id: 'todos', texto: 'Todos', fn: () => true },
   ];
@@ -198,6 +267,7 @@
       c.innerHTML = `
         <div class="cabeza"><div><h1>Pedidos</h1><div class="subtitulo" id="pd-cuenta"></div></div>
           <div class="acciones"><div class="segmentos" id="pd-modo"><button data-m="lista">Lista</button><button data-m="tablero">Tablero</button></div>
+          ${A.esVendedor() ? '' : '<button class="btn" id="pd-proveedor">Pedido al proveedor</button>'}
           <button class="btn" data-venta-rapida>Venta rápida</button>
           <a class="btn primario" href="#/pedido/nuevo">＋ Nuevo pedido</a></div></div>
         <div class="buscador"><input type="search" id="pd-q" placeholder="Buscar por cliente, folio o producto" value="${esc(pref.q)}"></div>
@@ -232,6 +302,8 @@
           destino.innerHTML = lista.length ? `<div class="lista">${lista.map(A.pedidos.renglon).join('')}</div>` : '<div class="vacio">No hay pedidos aquí.</div>';
         }
       };
+      const bp = c.querySelector('#pd-proveedor');
+      if (bp) bp.addEventListener('click', () => A.pedidos.pedidoProveedor());
       c.querySelector('#pd-q').addEventListener('input', e => { pref.q = e.target.value; pintar(); });
       c.querySelector('#pd-filtros').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) { pref.filtro = b.dataset.f; pintar(); } });
       c.querySelector('#pd-modo').addEventListener('click', e => { const b = e.target.closest('[data-m]'); if (b) { pref.modo = b.dataset.m; pintar(); } });
@@ -277,7 +349,9 @@
           <div>
             <div class="tarjeta"><h2>Cliente</h2><div id="pe-cliente"></div></div>
             <div class="tarjeta"><h2>Conceptos</h2><div id="pe-lineas"></div></div>
-            <div class="tarjeta"><h2>Notas</h2><textarea id="pe-notas" placeholder="Medidas, colores, archivo del diseño, quién lo atiende…">${esc(doc.notas || '')}</textarea></div>
+            <div class="tarjeta"><h2>Notas</h2><textarea id="pe-notas" placeholder="Medidas, colores, archivo del diseño, quién lo atiende…">${esc(doc.notas || '')}</textarea>
+              <div class="etiqueta" style="margin:12px 0 4px">Fotos: logo, dibujo, idea o nota del cliente</div><div id="pe-fotos"></div></div>
+            <div class="tarjeta"><h2>Factura</h2><div id="pe-factura"></div></div>
           </div>
           <div>
             <div class="tarjeta"><h2>Fechas</h2>
@@ -292,7 +366,8 @@
             <div class="tarjeta"><h2>Estado</h2><div class="pasos" id="pe-pasos"></div>
               <div style="margin-top:10px" class="chico"><button class="btn-icono chico" id="pe-cancelar"></button></div></div>
             <div class="tarjeta"><h2>Pagos</h2><div id="pe-pagos"></div></div>
-            ${A.esDueno() ? '<div class="tarjeta"><h2>Costo y ganancia</h2><div id="pe-costo"></div></div>' : ''}
+            ${A.esVendedor() || (A.esDueno() && (doc.vendedorId || doc.recompra)) ? '<div class="tarjeta"><h2>Comisión del vendedor</h2><div id="pe-comision"></div></div>' : ''}
+            ${A.esDueno() && !esNuevo ? '<div class="tarjeta"><h2>Costo y ganancia</h2><div id="pe-costo"></div></div>' : ''}
             ${esNuevo ? '' : '<div class="tarjeta"><h2>Historial</h2><ul class="historial" id="pe-hist"></ul></div>'}
           </div>
         </div>`;
@@ -304,6 +379,8 @@
         pintarFechas(); pintarEstado(); pintarPagos(); pintarCosto(); if (montado) pintarAcciones(); autoguardar();
       });
       c.querySelector('#pe-notas').addEventListener('input', e => { doc.notas = e.target.value; autoguardar(); });
+      A.adjuntos.montar(c.querySelector('#pe-fotos'), doc, { titulo: 'Tomar o subir foto', alCambiar: () => autoguardar() });
+      A.factura.montar(c.querySelector('#pe-factura'), doc, () => autoguardar());
       c.querySelector('#pe-rec').addEventListener('change', e => {
         doc.fechaRecibido = e.target.value || u.hoy();
         if (!doc.fechaEntregaManual) { doc.fechaEntrega = A.precios.fechaEntrega(doc.fechaRecibido, doc.lineas); c.querySelector('#pe-ent').value = doc.fechaEntrega; }
@@ -374,7 +451,7 @@
           <div class="dato"><span>Costo estimado</span><strong class="num">${e.completo ? u.dinero(e.valor) : e.valor ? u.dinero(e.valor) + ' + ?' : '—'}</strong></div>
           ${e.faltan.length && doc.lineas.length ? `<div class="chico tenue" style="margin:4px 0">Sin costo registrado: ${e.faltan.map(l => esc(l.clave || l.descripcion)).join(', ')}. Escribe el costo real abajo o agrégalo en Precios.</div>` : ''}
           <div class="campo" style="margin:10px 0 4px"><label for="pe-costo-real">Costo real (lo que te costó)</label>
-            <input type="number" id="pe-costo-real" step="0.01" min="0" value="${doc.costo ?? ''}" placeholder="${e.completo ? 'Vacío = usar el estimado' : 'Maquila, playeras, material…'}"></div>
+            <input type="number" id="pe-costo-real" step="0.01" min="0" value="${A.costos.de('ped-' + doc.id) ?? ''}" placeholder="${e.completo ? 'Vacío = usar el estimado' : 'Maquila, playeras, material…'}"></div>
           <div data-gan></div>`;
         actualizarGanancia();
       }
@@ -384,15 +461,32 @@
         const cp = A.kpis.costoPedido(doc);
         if (cp.valor == null) { g.innerHTML = '<span class="chico tenue">Con el costo se calcula la ganancia del pedido.</span>'; return; }
         const gan = (doc.total || 0) - cp.valor;
-        g.innerHTML = `<div class="dato"><span>Ganancia${cp.fuente === 'estimado' ? ' estimada' : ''}</span>
+        g.innerHTML = `${cp.comision ? `<div class="dato"><span>Comisión del vendedor</span><span class="num">${u.dinero(cp.comision)}</span></div>` : ''}
+          <div class="dato"><span>Ganancia${cp.fuente === 'estimado' ? ' estimada' : ''}</span>
           <strong class="num" style="color:${gan >= 0 ? 'var(--verde)' : 'var(--rojo-vivo)'}">${u.dinero(gan)}${doc.total ? ` · ${Math.round(gan / doc.total * 100)}%` : ''}</strong></div>`;
       }
       if (c.querySelector('#pe-costo')) c.querySelector('#pe-costo').addEventListener('input', e => {
         if (e.target.id !== 'pe-costo-real') return;
+        // El costo real va a la colección privada del dueño, no dentro del pedido.
         const v = parseFloat(e.target.value);
-        doc.costo = Number.isFinite(v) ? v : null;
-        actualizarGanancia(); autoguardar();
+        clearTimeout(e.target._t);
+        e.target._t = setTimeout(() => { A.costos.poner('ped-' + doc.id, Number.isFinite(v) ? v : null); actualizarGanancia(); }, 500);
       });
+
+      function pintarComision() {
+        const cont = c.querySelector('#pe-comision');
+        if (!cont) return;
+        const monto = A.comisiones.montoPedido(doc);
+        const quien = doc.vendedorNombre || (doc.recompra && doc.recompra.vendedorNombre) || '';
+        const tipo = doc.vendedorId ? 'Venta del vendedor (incluida en el precio)' : doc.recompra ? `Recompra ${doc.recompra.numero || ''} de ${A.db.ajustes().comisiones.recompraVeces} · ${doc.recompra.pct}% del total` : '';
+        const liquidado = A.pedidos.saldo(doc) <= 0 && (doc.total || 0) > 0;
+        const reg = A.db.obtener('comisiones', 'com-' + doc.id);
+        const nota = reg && reg.pagada ? `Comisión pagada${reg.fechaPago ? ' el ' + u.fecha(reg.fechaPago) : ''}.`
+          : liquidado ? 'Pedido liquidado: la comisión ya se puede pagar.' : 'Se paga cuando el pedido esté liquidado.';
+        cont.innerHTML = `${quien && !A.esVendedor() ? `<div class="dato"><span>Vendedor</span><strong>${esc(quien)}</strong></div>` : ''}
+          <div class="dato"><span>${esc(tipo)}</span><strong class="num">${u.dinero(monto)}</strong></div>
+          <div class="chico tenue" style="margin-top:6px">${nota}</div>`;
+      }
 
       function pintarPagos() {
         const pagado = A.pedidos.pagado(doc);
@@ -402,11 +496,13 @@
           ${(doc.pagos || []).map((p, i) => `<div class="dato"><span>${esc(u.fecha(p.fecha))} · ${esc(p.metodo || 'Efectivo')}${p.nota ? ' · ' + esc(p.nota) : ''}${p.por ? ` <span class="tenue">· ${esc(p.por)}</span>` : ''}</span>
             <span class="num">${u.dinero(p.monto)}${A.esDueno() ? ` <button class="btn-icono chico" data-qp="${i}" aria-label="Quitar pago">✕</button>` : ''}</span></div>`).join('')}
           <div class="dato"><span>Saldo</span><strong class="num" style="color:${saldo > 0 ? 'var(--rojo-vivo)' : 'var(--verde)'}">${saldo > 0 ? u.dinero(saldo) : 'Pagado ✓'}</strong></div>
+          ${A.esVendedor() ? `<p class="chico tenue" style="margin:10px 0 0">El cliente paga directo al negocio (los datos de pago vienen en la nota). Los pagos los registra el negocio.</p>` : `
           <div class="fila" style="margin-top:12px;gap:8px">
             <button class="btn chico" data-pago="anticipo" ${saldo <= 0 ? 'disabled' : ''}>Anticipo ${aj.anticipoSugerido}%</button>
             <button class="btn chico" data-pago="liquidar" ${saldo <= 0 ? 'disabled' : ''}>Liquidar</button>
             <button class="btn chico" data-pago="otro">Otro monto</button>
-          </div>`;
+          </div>`}`;
+        pintarComision();
       }
       c.querySelector('#pe-pagos').addEventListener('click', async e => {
         const q = e.target.closest('[data-qp]');
@@ -457,6 +553,8 @@
           a.querySelector('#pe-crear').addEventListener('click', () => {
             if (!doc.clienteNombre) return A.aviso('Escribe el nombre del cliente.');
             if (!doc.lineas.length) return A.aviso('Agrega al menos un concepto.');
+            A.asegurarCliente(doc);
+            if (!doc.vendedorId && !doc.recompra) doc.recompra = A.comisiones.recompraPara(doc.contactoId);
             guardar();
             A.aviso(`Pedido ${doc.folio} creado`);
             A.ir('#/pedido/' + doc.id);
@@ -523,11 +621,12 @@
             fechaRecibido: fecha, fechaEntrega: fecha, fechaEntregaManual: true,
             lineas: [{ tipo: 'libre', categoria: d.categoria, descripcion: d.concepto, cantidad: 1, precioUnit: monto, dias: 0, unidad: 'pieza' }],
             total: monto, pagos: [{ id: u.id(), monto, fecha, metodo: d.metodo }],
-            estado: 'entregado', entregadoEn: u.ahora(), costo: d.costo ? u.redondear(d.costo) : null,
+            estado: 'entregado', entregadoEn: u.ahora(),
             notas: '', historial: [{ fecha: u.ahora(), texto: 'Venta rápida de mostrador' }],
           };
           if (d.cliente) A.asegurarCliente(ped);
-          A.db.guardar('pedidos', ped);
+          const guardado = A.db.guardar('pedidos', ped);
+          if (d.costo) A.costos.poner('ped-' + guardado.id, d.costo);
           A.modal.cerrar();
           A.aviso(`Venta registrada: ${u.dinero(monto)}`);
           despues ? despues() : A.recargarVista();

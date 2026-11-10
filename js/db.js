@@ -3,7 +3,7 @@
 (function (A) {
   const u = A.u;
   const PREFIJO = 'nova.';
-  const COLECCIONES = ['productos', 'playeras', 'contactos', 'cotizaciones', 'pedidos', 'ajustes', 'gastos', 'bitacora'];
+  const COLECCIONES = ['productos', 'playeras', 'contactos', 'cotizaciones', 'pedidos', 'ajustes', 'gastos', 'bitacora', 'costos', 'comisiones'];
   const FECHA_SEMILLA = '2026-01-01T00:00:00.000Z';
 
   const AJUSTES_BASE = {
@@ -32,8 +32,16 @@
     playeraPrecioMayoreo: true,
     diasPlayeras: 2,
     // Costos para estimar la ganancia de cada pedido (null = no se sabe todavía).
-    costoTecnica: { DTF: null, Vinil: null, Sublimación: 10 }, // por cada lado estampado
-    costoPlayeraDesdeMayoreo: true, // si una playera no tiene costo propio, se toma su precio de mayoreo
+    // Comisión de vendedores externos: se suma al precio que ven (el cliente la paga, el negocio cobra su precio normal).
+    comisiones: {
+      general: 15,
+      categorias: { Termos: 17, 'Vinil y Lona': 17 },
+      productos: { TAB5: 17, TAB6: 17 }, // etiquetas recortadas
+      recompra: 10, // si el cliente que trajo el vendedor vuelve a comprar directo con el negocio…
+      recompraVeces: 3, // …durante sus siguientes compras
+    },
+    // Datos para que el cliente pague directo al negocio (salen en la nota y la cotización).
+    pago: { banco: '', titular: '', clabe: '', tarjeta: '', liga: '' },
   };
 
   const memoria = {};
@@ -56,7 +64,7 @@
 
   // Cobro de diseño (precios del negocio: de $30 a $200 según la complejidad; el diseñador ajusta cada caso).
   // Costo 0 porque es trabajo propio.
-  const DISENO = { categoria: 'Diseño', unidad: 'pieza', fabricacion: 'En Innova', dias: 0, costo: 0 };
+  const DISENO = { categoria: 'Diseño', unidad: 'pieza', fabricacion: 'En Innova', dias: 0 };
   const PRODUCTOS_EXTRA = [
     { clave: 'DIS1', descripcion: 'Ajuste rápido (cambiar un texto, acomodar)', precio: 30 },
     { clave: 'DIS2', descripcion: 'Diseño sencillo (texto y logo)', precio: 50 },
@@ -77,6 +85,7 @@
   function fusionarPedido(base, otro) {
     if (!otro) return base;
     const eliminados = [...new Set([...(base.pagosEliminados || []), ...(otro.pagosEliminados || [])])];
+    const adjEliminados = [...new Set([...(base.adjuntosEliminados || []), ...(otro.adjuntosEliminados || [])])];
     const juntar = (a, b, clave) => {
       const lista = [...(a || [])];
       const vistos = new Set(lista.map(clave));
@@ -88,6 +97,8 @@
       pagos: juntar(base.pagos, otro.pagos, p => p.id).filter(p => !eliminados.includes(p.id)),
       historial: juntar(base.historial, otro.historial, h => `${h.fecha}|${h.texto}`),
       pagosEliminados: eliminados,
+      adjuntos: juntar(base.adjuntos, otro.adjuntos, a => a.id).filter(a => !adjEliminados.includes(a.id)),
+      adjuntosEliminados: adjEliminados,
     };
   }
   const usuarioActual = () => (A.sync ? A.sync.nombreUsuario() : '');
@@ -95,7 +106,7 @@
   // Lo que llega de otro dispositivo (o de un respaldo) se limpia antes de usarse: ids con formato válido
   // y números que sí son números. Así un registro alterado no puede meter HTML en la pantalla de nadie.
   const ID_VALIDO = /^[\w-]{1,80}$/;
-  const CAMPOS_NUMERO = new Set(['cantidad', 'precioUnit', 'total', 'monto', 'precio', 'costo', 'costoUnit', 'menudeo', 'mayoreo',
+  const CAMPOS_NUMERO = new Set(['cantidad', 'precioUnit', 'precioBase', 'comisionPct', 'valor', 'total', 'monto', 'precio', 'costo', 'costoUnit', 'menudeo', 'mayoreo',
     'dias', 'orden', 'ancho', 'alto', 'piezas', 'planchados', 'vigenciaDias', 'inversion', 'iva', 'anticipoSugerido', 'umbralMayoreo', 'diasPlayeras']);
   function sanear(valor, clave) {
     if (Array.isArray(valor)) return valor.map(v => sanear(v));
@@ -185,6 +196,16 @@
       avisar(col, 'local');
       return r;
     },
+    // Guarda el registro tal cual, sin mezclar con lo anterior (para quitar campos).
+    reemplazar(col, datos) {
+      const previo = memoria[col][datos.id];
+      const r = { ...datos, creado: (previo && previo.creado) || datos.creado || u.ahora(), actualizado: u.ahora(), _borrado: false };
+      memoria[col][r.id] = r;
+      persistir(col);
+      marcarPendiente(col, r.id);
+      avisar(col, 'local');
+      return r;
+    },
     borrar(col, id) {
       const r = memoria[col][id];
       if (!r) return;
@@ -202,7 +223,10 @@
         negocio: { ...base.negocio, ...(a.negocio || {}) },
         tecnicas: { ...base.tecnicas, ...(a.tecnicas || {}) },
         planchado: { ...base.planchado, ...(a.planchado || {}) },
-        costoTecnica: { ...base.costoTecnica, ...(a.costoTecnica || {}) },
+        comisiones: { ...base.comisiones, ...(a.comisiones || {}),
+          categorias: { ...base.comisiones.categorias, ...((a.comisiones || {}).categorias || {}) },
+          productos: { ...base.comisiones.productos, ...((a.comisiones || {}).productos || {}) } },
+        pago: { ...base.pago, ...(a.pago || {}) },
       };
     },
     guardarAjustes(cambios) { return A.db.guardar('ajustes', { ...A.db.ajustes(), ...cambios, id: 'general' }); },
@@ -210,8 +234,11 @@
 
     // Folio legible y consecutivo: P-0001 (pedidos), C-0001 (cotizaciones).
     siguienteFolio(col, prefijo) {
+      // Solo cuenta folios con el mismo prefijo (los vendedores usan el suyo, ej. P-JV-0001).
+      const patron = new RegExp('^' + prefijo.replace(/[^\w-]/g, '') + '-(\\d+)$');
       const max = A.db.todos(col, { conBorrados: true }).reduce((m, r) => {
-        const n = parseInt(String(r.folio || '').replace(/\D/g, ''), 10);
+        const coincide = String(r.folio || '').match(patron);
+        const n = coincide ? parseInt(coincide[1], 10) : NaN;
         return Number.isFinite(n) && n > m ? n : m;
       }, 0);
       return `${prefijo}-${String(max + 1).padStart(4, '0')}`;

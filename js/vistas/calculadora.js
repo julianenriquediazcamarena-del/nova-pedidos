@@ -10,7 +10,7 @@
     render(c) {
       c.innerHTML = `
         <div class="cabeza"><h1>Calculadora</h1></div>
-        <div class="segmentos" id="cl-tab" style="margin-bottom:16px">${PESTANAS.map(([k, t]) => `<button data-t="${k}">${t}</button>`).join('')}</div>
+        <div class="segmentos" id="cl-tab" style="margin-bottom:16px">${PESTANAS.filter(([k]) => k !== 'margen' || A.esDueno()).map(([k, t]) => `<button data-t="${k}">${t}</button>`).join('')}</div>
         <div id="cl-cuerpo"></div>`;
       let limpiar = null;
       const pintar = () => {
@@ -113,7 +113,7 @@
     medidas(cont) {
       const prods = A.precios.productos().filter(p => ['m²', 'm lineal'].includes(p.unidad) && p.precio != null);
       cont.innerHTML = `<div class="tarjeta">
-        <div class="campo"><label for="cm-p">Material</label><select id="cm-p">${prods.map(p => `<option value="${p.id}">${esc(p.descripcion)} · ${u.dinero(p.precio)} por ${esc(p.unidad)}</option>`).join('')}</select></div>
+        <div class="campo"><label for="cm-p">Material</label><select id="cm-p">${prods.map(p => `<option value="${p.id}">${esc(p.descripcion)} · ${u.dinero(A.precios.paraVendedor(p.precio, p))} por ${esc(p.unidad)}</option>`).join('')}</select></div>
         <div class="fila">
           <div class="campo"><label for="cm-a" id="cm-la">Ancho (m)</label><input type="number" id="cm-a" step="0.01" min="0" value="1"></div>
           <div class="campo" id="cm-alto-c"><label for="cm-h">Alto (m)</label><input type="number" id="cm-h" step="0.01" min="0" value="1"></div>
@@ -131,11 +131,12 @@
         $('#cm-la').textContent = lineal ? 'Largo (m)' : 'Ancho (m)';
         const a = Number($('#cm-a').value) || 0, h = Number($('#cm-h').value) || 0, n = Math.max(1, Number($('#cm-n').value) || 1);
         const cant = u.redondear(lineal ? a * n : a * h * n);
-        const total = u.redondear(cant * p.precio);
+        const precio = A.precios.paraVendedor(p.precio, p);
+        const total = u.redondear(cant * precio);
         $('#cm-r').innerHTML = `<div class="chico tenue">${lineal ? `${u.num(cant)} metros lineales (ancho fijo del rollo)` : `${u.num(a)} × ${u.num(h)} m × ${n} = ${u.num(cant)} m²`}</div>
-          <div class="grande">${u.dinero(total)}</div><div class="chico tenue">${u.dinero(p.precio)} por ${esc(p.unidad)} · IVA incluido</div>`;
-        linea = { tipo: 'producto', clave: p.clave, descripcion: `${p.categoria} · ${p.descripcion}`, unidad: p.unidad, cantidad: cant, precioUnit: p.precio, dias: p.dias,
-          medidas: lineal ? null : { ancho: a, alto: h, piezas: n } };
+          <div class="grande">${u.dinero(total)}</div><div class="chico tenue">${u.dinero(precio)} por ${esc(p.unidad)} · IVA incluido</div>`;
+        linea = A.precios.lineaDeVendedor({ tipo: 'producto', clave: p.clave, categoria: p.categoria, descripcion: `${p.categoria} · ${p.descripcion}`, unidad: p.unidad, cantidad: cant, precioUnit: p.precio, dias: p.dias,
+          medidas: lineal ? null : { ancho: a, alto: h, piezas: n } });
       };
       cont.addEventListener('input', calc);
       calc();

@@ -65,15 +65,42 @@
       return { blanca, cargoTecnica, cargoPlanchado, unitario: u.redondear(blanca + cargoTecnica + cargoPlanchado) };
     },
 
+    // ---- Comisión de vendedores externos ----
+    // Porcentaje que se suma al precio: por producto, por categoría o general (Ajustes → Comisiones).
+    comisionPct({ categoria, clave }) {
+      const c = A.db.ajustes().comisiones;
+      if (clave && c.productos[clave] != null) return Number(c.productos[clave]);
+      if (categoria && c.categorias[categoria] != null) return Number(c.categorias[categoria]);
+      return Number(c.general) || 0;
+    },
+    // Precio que ve quien está usando la app: el vendedor ya lo ve con su comisión incluida.
+    paraVendedor(precio, item) {
+      if (precio == null || !(A.esVendedor && A.esVendedor())) return precio;
+      return u.redondear(precio * (1 + A.precios.comisionPct(item) / 100));
+    },
+    // Marca una línea nueva hecha por un vendedor: guarda el precio base y le suma su comisión.
+    // Si el precio que escribió ya es el final (diseño, concepto libre), se calcula el base hacia atrás.
+    lineaDeVendedor(l, { precioFinal = false } = {}) {
+      if (!(A.esVendedor && A.esVendedor())) return l;
+      const pct = A.precios.comisionPct({ categoria: l.categoria, clave: l.clave });
+      const f = 1 + pct / 100;
+      if (precioFinal) return { ...l, comisionPct: pct, precioBase: u.redondear(l.precioUnit / f) };
+      return { ...l, comisionPct: pct, precioBase: l.precioUnit, precioUnit: u.redondear(l.precioUnit * f) };
+    },
+
     // ---- Totales de un documento (cotización o pedido) ----
-    // Recalcula el precio de las líneas de playera según el nivel del total de piezas.
+    // Recalcula el precio de las líneas de playera según el nivel del total de piezas
+    // (con la comisión del vendedor si la línea la trae).
     recalcular(lineas) {
       const piezas = lineas.filter(l => l.tipo === 'playera').reduce((n, l) => n + (Number(l.cantidad) || 0), 0);
       const nivel = A.precios.nivel(piezas);
       lineas.forEach(l => {
         if (l.tipo === 'playera' && !l.precioManual) {
           const r = A.precios.precioPlayera(l.detalle, nivel);
-          if (r) l.precioUnit = r.unitario;
+          if (r) {
+            if (l.comisionPct) { l.precioBase = r.unitario; l.precioUnit = u.redondear(r.unitario * (1 + l.comisionPct / 100)); }
+            else l.precioUnit = r.unitario;
+          }
         }
         if (l.medidas && l.medidas.ancho && l.medidas.alto) {
           l.cantidad = u.redondear(l.medidas.ancho * l.medidas.alto * (l.medidas.piezas || 1));

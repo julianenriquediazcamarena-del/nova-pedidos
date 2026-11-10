@@ -1,2 +1,4 @@
 # Catálogo con precios y costos: no se publica (vive en la base de Supabase).
 js/datos-iniciales.js
+# Costos e investigación de mercado: privados.
+costos-y-mercado-*.json

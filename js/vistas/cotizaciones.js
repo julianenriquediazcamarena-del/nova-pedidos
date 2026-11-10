@@ -100,7 +100,8 @@
       if (id && !guardada) { c.innerHTML = '<div class="vacio">Esa cotización no existe. <a href="#/cotizaciones">Ver cotizaciones</a></div>'; return; }
       const aj = A.db.ajustes();
       const doc = guardada ? structuredClone(guardada) : {
-        folio: A.db.siguienteFolio('cotizaciones', 'C'), fecha: u.hoy(), vigenciaDias: aj.vigenciaCotizacion,
+        folio: A.db.siguienteFolio('cotizaciones', A.comisiones.prefijo('C')), fecha: u.hoy(), vigenciaDias: aj.vigenciaCotizacion,
+        ...A.comisiones.datosVendedor(),
         clienteNombre: '', contactoId: null, telefono: '', lineas: A.borradorLineas || [], notas: '', estado: 'abierta', total: 0,
       };
       A.borradorLineas = null;

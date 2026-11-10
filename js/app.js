@@ -10,6 +10,7 @@
     { ruta: '#/desempeno', ico: '↗', texto: 'Desempeño', vista: 'desempeno', soloDueno: true },
     { ruta: '#/calculadora', ico: '±', texto: 'Calculadora', vista: 'calculadora' },
     { ruta: '#/contactos', ico: '☺', texto: 'Contactos', vista: 'contactos' },
+    { ruta: '#/comisiones', ico: '%', texto: 'Comisiones', vista: 'comisiones', roles: ['dueno', 'vendedor'] },
     { ruta: '#/ajustes', ico: '⚙', texto: 'Ajustes', vista: 'ajustes' },
   ];
   const PESTANAS = [
@@ -33,6 +34,7 @@
     [/^#\/contactos$/, 'contactos'],
     [/^#\/contacto\/([\w-]+)$/, 'contacto'],
     [/^#\/ajustes$/, 'ajustes'],
+    [/^#\/comisiones$/, 'comisiones'],
     [/^#\/desempeno(?:\/(\w+))?$/, 'desempeno'],
     [/^#\/mas$/, 'mas'],
     [/^#\/conectar\/([\w-]+)$/, 'conectar'],
@@ -41,13 +43,14 @@
   const SOLO_DUENO = ['desempeno'];
 
   A.esDueno = () => A.sync.rol() === 'dueno';
+  A.esVendedor = () => A.sync.rol() === 'vendedor';
 
   // Publicada en internet, la app no muestra nada sin sesión (ni el catálogo). En la compu, abierta como
   // archivo o en localhost, se puede usar sola sin cuenta.
   const enInternet = location.protocol === 'https:' && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   A.requiereSesion = () => enInternet || !!(window.NOVA_CONFIG || {}).requiereSesion;
   A.bloqueado = () => A.requiereSesion() && (!A.sync.conSesion() || A.sync.rol() === 'pendiente');
-  const menuVisible = () => MENU.filter(m => !m.soloDueno || A.esDueno());
+  const menuVisible = () => MENU.filter(m => (!m.soloDueno || A.esDueno()) && (!m.roles || m.roles.includes(A.sync.rol())));
 
   A.vistas = A.vistas || {};
   A.vistas.mas = {
@@ -110,6 +113,7 @@
   function mostrar() {
     const { vista, params } = resolver();
     if (SOLO_DUENO.includes(vista) && !A.esDueno()) { location.replace('#/'); return; }
+    if (vista === 'comisiones' && !A.esDueno() && !A.esVendedor()) { location.replace('#/'); return; }
     const bloqueado = A.bloqueado() && vista !== 'conectar';
     document.body.classList.toggle('bloqueado', bloqueado);
     const def = A.vistas[bloqueado ? 'entrar' : vista];
@@ -146,7 +150,7 @@
     document.getElementById('menu').innerHTML = menuVisible().map(m => `<a href="${m.ruta}" data-vista="${m.vista}"><span class="ico">${m.ico}</span>${m.texto}</a>`).join('');
     const p = A.sync.conSesion() && A.sync.perfil();
     document.getElementById('usuario-actual').innerHTML = p
-      ? `<strong>${u.esc(A.sync.nombreUsuario())}</strong><span>${p.rol === 'dueno' ? 'Dueño' : 'Colaborador'}</span>` : '';
+      ? `<strong>${u.esc(A.sync.nombreUsuario())}</strong><span>${{ dueno: 'Dueño', colaborador: 'Colaborador', vendedor: 'Vendedor' }[p.rol] || 'Sin acceso'}</span>` : '';
   }
 
   // En la compu se carga el catálogo inicial privado si existe; publicada no se pide (no está en internet).
@@ -165,14 +169,17 @@
     if (window.top !== window.self) { document.body.textContent = 'Abre la app directamente.'; return; }
     await cargarCatalogoLocal();
     A.db.iniciar();
+    A.costos.migrar();
     pintarMenu();
     document.getElementById('pestanas').innerHTML = PESTANAS.map(m => `<a href="${m.ruta}" data-vista="${m.vista}"><span class="ico">${m.ico}</span>${m.texto}</a>`).join('');
     window.addEventListener('hashchange', mostrar);
     document.addEventListener('click', e => { if (e.target.closest('[data-venta-rapida]')) A.ventaRapida(); });
+    // Los vendedores no registran ventas de mostrador.
+    document.body.classList.toggle('es-vendedor', A.esVendedor());
     A.db.alCambiar(alCambiarDatos);
     A.sync.alCambiar(pintarSync);
     // Si cambia la persona o su rol, se rehace el menú y la vista.
-    A.sync.alCambiarPerfil(() => { pintarMenu(); mostrar(); });
+    A.sync.alCambiarPerfil(() => { document.body.classList.toggle('es-vendedor', A.esVendedor()); pintarMenu(); mostrar(); });
     mostrar();
     A.sync.arrancar();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {

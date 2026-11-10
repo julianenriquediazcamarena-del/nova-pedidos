@@ -48,9 +48,10 @@
   }
 
   function componer(ctx, tipo, d, logo) {
+    const esFactura = tipo === 'factura';
     const neg = A.db.ajustes().negocio;
     const iva = A.db.ajustes().iva;
-    const esPedido = tipo === 'pedido';
+    const esPedido = tipo === 'pedido' || esFactura;
     const t = A.precios.totales(d.lineas || []);
     let y;
 
@@ -59,7 +60,7 @@
     ctx.fillStyle = C.negro; ctx.fillRect(0, 0, W, 210);
     if (logo) { const h = 116; ctx.drawImage(logo, M, 47, (logo.width * h) / logo.height, h); }
     else texto(ctx, neg.nombre, M, 125, F.titulo, '#fff');
-    texto(ctx, esPedido ? 'NOTA DE PEDIDO' : 'COTIZACIÓN', W - M, 80, F.etiqueta, '#bdbdbd', 'right');
+    texto(ctx, esFactura ? 'SOLICITUD DE FACTURA' : esPedido ? 'NOTA DE PEDIDO' : 'COTIZACIÓN', W - M, 80, F.etiqueta, '#bdbdbd', 'right');
     texto(ctx, d.folio, W - M, 134, F.titulo, '#fff', 'right');
     texto(ctx, u.fecha(esPedido ? d.fechaRecibido : d.fecha, { day: 'numeric', month: 'long', year: 'numeric' }), W - M, 172, F.chico, '#bdbdbd', 'right');
     ctx.fillStyle = C.rojo; ctx.fillRect(0, 210, W, 8);
@@ -79,13 +80,37 @@
     if (d.telefono) { y += 36; texto(ctx, d.telefono, M, y, F.chico, C.tenue); }
     y += 50;
 
+    // Datos fiscales del receptor (solo en la hoja para el contador)
+    if (esFactura) {
+      const f = d.factura || {};
+      const filaF = (etq, val) => {
+        texto(ctx, etq, M + 16, y, F.etiqueta, C.tenue);
+        ctx.font = F.normal;
+        renglones(ctx, val || '—', W - 2 * M - 300).forEach((l, i) => texto(ctx, l, M + 280, y + i * 32, F.normal, C.texto));
+        y += 32 * Math.max(1, renglones(ctx, val || '—', W - 2 * M - 300).length) + 10;
+      };
+      ctx.fillStyle = '#f7f2f2'; ctx.fillRect(M, y - 10, W - 2 * M, 8);
+      y += 30;
+      filaF('RFC', f.rfc);
+      filaF('RAZÓN SOCIAL', f.razonSocial);
+      filaF('RÉGIMEN FISCAL', f.regimen ? `${f.regimen} · ${A.factura.nombreRegimen(f.regimen)}` : '');
+      filaF('C.P. FISCAL', f.cp);
+      filaF('USO DEL CFDI', f.uso ? `${f.uso} · ${A.factura.nombreUso(f.uso)}` : '');
+      filaF('FORMA DE PAGO', f.formaPago ? `${f.formaPago} · ${A.factura.nombreForma(f.formaPago)}` : '');
+      filaF('MÉTODO DE PAGO', f.metodoPago ? `${f.metodoPago} · ${A.factura.nombreMetodo(f.metodoPago)}` : '');
+      filaF('CORREO', f.correo);
+      if ((d.adjuntos || []).some(a => a.tipo === 'fiscal')) filaF('CONSTANCIA', 'Se adjunta foto en el pedido');
+      if (f.notas) filaF('NOTAS', f.notas);
+      y += 20;
+    }
+
     // Conceptos
     // Columnas: concepto (con saltos de línea) | cantidad | precio unitario | importe, sin encimarse.
     const xImp = W - M - 16, xUnit = xImp - 170, xCant = xUnit - 150, anchoDesc = xCant - 140 - (M + 16);
     ctx.fillStyle = C.fondoTabla; ctx.fillRect(M, y, W - 2 * M, 52);
     texto(ctx, 'CONCEPTO', M + 16, y + 34, F.etiqueta, C.tenue);
     texto(ctx, 'CANT.', xCant, y + 34, F.etiqueta, C.tenue, 'right');
-    texto(ctx, 'P. UNIT.', xUnit, y + 34, F.etiqueta, C.tenue, 'right');
+    texto(ctx, esFactura ? 'V. UNIT. S/IVA' : 'P. UNIT.', xUnit, y + 34, F.etiqueta, C.tenue, 'right');
     texto(ctx, 'IMPORTE', xImp, y + 34, F.etiqueta, C.tenue, 'right');
     y += 52;
     (d.lineas || []).forEach(l => {
@@ -98,8 +123,9 @@
       ls.forEach((t2, i) => texto(ctx, t2, M + 16, yIni + i * 34, F.normal, C.texto));
       const cant = `${u.num(l.cantidad)}${l.unidad && l.unidad !== 'pieza' ? ' ' + l.unidad : ''}`;
       texto(ctx, cant, xCant, yIni, F.normal, C.texto, 'right');
-      texto(ctx, u.dinero(l.precioUnit), xUnit, yIni, F.normal, C.texto, 'right');
-      texto(ctx, u.dinero(l.cantidad * l.precioUnit), xImp, yIni, F.importe, C.texto, 'right');
+      const div = esFactura ? 1 + iva / 100 : 1; // para el contador: valores antes de IVA
+      texto(ctx, u.dinero(l.precioUnit / div), xUnit, yIni, F.normal, C.texto, 'right');
+      texto(ctx, u.dinero(l.cantidad * l.precioUnit / div), xImp, yIni, F.importe, C.texto, 'right');
       y += 24 + ls.length * 34 + 10;
       ctx.fillStyle = C.linea; ctx.fillRect(M, y, W - 2 * M, 2);
     });
@@ -118,7 +144,7 @@
     y += 14;
     fila('Total', u.dinero(t.total), F.grande, C.texto, 56);
 
-    if (esPedido) {
+    if (esPedido && !esFactura) {
       const pagos = d.pagos || [];
       if (!pagos.length) fila('Anticipo', 'Sin anticipo', F.normal, C.texto);
       pagos.forEach((p, i) => fila(`${i === 0 ? 'Anticipo' : 'Abono'} · ${u.fecha(p.fecha, { day: 'numeric', month: 'short' })} · ${p.metodo || 'Efectivo'}`, u.dinero(p.monto)));
@@ -130,13 +156,34 @@
       texto(ctx, saldo > 0 ? 'Resta por pagar' : 'Pagado', xEtq, y, F.grande, saldo > 0 ? C.rojo : C.verde, 'right');
       texto(ctx, saldo > 0 ? u.dinero(saldo) : '✓', xVal - 16, y, F.grande, saldo > 0 ? C.rojo : C.verde, 'right');
       y += altoCaja - 20;
+    } else if (esFactura) {
+      const pagado = A.pedidos.pagado(d);
+      texto(ctx, `Pagado: ${u.dinero(pagado)}${pagado < t.total ? ` · Saldo: ${u.dinero(t.total - pagado)}` : ' (liquidado)'}`, M, y, F.chico, C.tenue);
+      y += 36;
     } else {
       const dias = d.lineas && d.lineas.length ? Math.max(...d.lineas.map(A.precios.diasLinea)) : 0;
       texto(ctx, `Tiempo de entrega: ${A.precios.textoDias(dias).toLowerCase()} a partir del anticipo.`, M, y, F.chico, C.tenue);
       y += 36;
     }
-    texto(ctx, 'Precios con IVA incluido.', M, y, F.chico, C.tenue);
+    texto(ctx, esFactura ? 'Valores unitarios e importes sin IVA; el total ya incluye IVA.' : 'Precios con IVA incluido.', M, y, F.chico, C.tenue);
     y += 30;
+
+    // Datos para pagar directo al negocio (nota y cotización para el cliente)
+    const pago = A.db.ajustes().pago || {};
+    if (!esFactura && (pago.clabe || pago.tarjeta || pago.liga)) {
+      y += 26;
+      ctx.fillStyle = '#f3f6fb'; const yCaja = y - 30;
+      const lineasPago = [
+        pago.banco || pago.titular ? `${pago.banco || ''}${pago.banco && pago.titular ? ' · ' : ''}${pago.titular ? 'A nombre de ' + pago.titular : ''}` : '',
+        pago.clabe ? `CLABE: ${pago.clabe.replace(/(\d{3})(\d{3})(\d{11})(\d)/, '$1 $2 $3 $4')}` : '',
+        pago.tarjeta ? `Tarjeta: ${pago.tarjeta.replace(/(\d{4})(?=\d)/g, '$1 ')}` : '',
+        pago.liga ? `Pago en línea: ${pago.liga}` : '',
+      ].filter(Boolean);
+      ctx.fillRect(M, yCaja, W - 2 * M, 50 + lineasPago.length * 34);
+      texto(ctx, 'PARA PAGAR (directo a ' + neg.nombre + ')', M + 16, y, F.etiqueta, C.tenue);
+      y += 36;
+      lineasPago.forEach(l => { texto(ctx, l, M + 16, y, F.normal, C.texto); y += 34; });
+    }
 
     // Notas
     if (d.notas) {
@@ -177,13 +224,13 @@
     async mostrar(tipo, d) {
       A.aviso('Preparando la imagen…');
       const blob = await A.notaImagen.generar(tipo, d);
-      const nombre = `${tipo === 'pedido' ? 'Nota' : 'Cotizacion'} ${d.folio} ${d.clienteNombre || ''}`.trim().replace(/[\\/:*?"<>|]+/g, '') + '.png';
+      const nombre = `${{ pedido: 'Nota', factura: 'Factura' }[tipo] || 'Cotizacion'} ${d.folio} ${d.clienteNombre || ''}`.trim().replace(/[\\/:*?"<>|]+/g, '') + '.png';
       const archivo = new File([blob], nombre, { type: 'image/png' });
       const url = URL.createObjectURL(blob);
       const puedeCompartir = !!(navigator.canShare && navigator.canShare({ files: [archivo] }));
-      A.modal.abrir(tipo === 'pedido' ? 'Nota para el cliente' : 'Cotización en imagen', `
+      A.modal.abrir({ pedido: 'Nota para el cliente', factura: 'Hoja para el contador' }[tipo] || 'Cotización en imagen', `
         <img src="${url}" alt="Vista previa de ${u.esc(nombre)}" class="vista-nota">
-        <p class="chico tenue">${puedeCompartir ? 'Con “Compartir” la mandas directo por WhatsApp.' : 'Descárgala y adjúntala en el chat de WhatsApp del cliente.'}</p>
+        <p class="chico tenue">${puedeCompartir ? 'Con “Compartir” la mandas directo por WhatsApp.' : `Descárgala y adjúntala en el chat de WhatsApp ${tipo === 'factura' ? 'del contador' : 'del cliente'}.`}${tipo === 'factura' && (d.adjuntos || []).some(a => a.tipo === 'fiscal') ? ' Mándale también la foto de la constancia.' : ''}</p>
         <div class="modal-pie">
           <button type="button" class="btn" data-cerrar>Cerrar</button>
           <a class="btn ${puedeCompartir ? '' : 'primario'}" href="${url}" download="${u.esc(nombre)}">Descargar imagen</a>

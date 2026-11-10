@@ -46,9 +46,36 @@
         <p class="chico tenue" style="margin-top:-6px">Con esto cada pedido calcula solo su costo y su ganancia. El costo de cada producto se pone en Precios. Si un pedido no tiene costo completo, puedes escribir el costo real en el pedido.</p>
         <div class="etiqueta" style="margin-bottom:6px">Lo que te cuesta cada estampado de playera (por lado, incluye hoja/película)</div>
         <div class="fila">
-          ${['DTF', 'Vinil', 'Sublimación'].map(t => `<div class="campo"><label for="aj-ct-${t}">${t}</label><input type="number" id="aj-ct-${t}" name="${t}" step="0.5" min="0" value="${aj.costoTecnica[t] ?? ''}" placeholder="No sé"></div>`).join('')}
+          ${['DTF', 'Vinil', 'Sublimación'].map(t => `<div class="campo"><label for="aj-ct-${t}">${t}</label><input type="number" id="aj-ct-${t}" name="${t}" step="0.5" min="0" value="${A.costos.general().tecnicas[t] ?? ''}" placeholder="No sé"></div>`).join('')}
         </div>
-        <label class="check" style="margin-bottom:12px"><input type="checkbox" name="costoPlayeraDesdeMayoreo" ${aj.costoPlayeraDesdeMayoreo ? 'checked' : ''}> Si una playera no tiene costo propio, usar su precio de mayoreo del catálogo como costo</label>
+        <label class="check" style="margin-bottom:12px"><input type="checkbox" name="costoPlayeraDesdeMayoreo" ${A.costos.general().playeraDesdeMayoreo ? 'checked' : ''}> Si una playera no tiene costo propio, usar su precio de mayoreo del catálogo como costo</label>
+        <button class="btn primario">Guardar</button>
+      </form>
+
+      <form class="tarjeta" id="aj-comisiones"><h2>Comisiones de vendedores</h2>
+        <p class="chico tenue" style="margin-top:-6px">Se suman al precio que ve el vendedor: el cliente paga la comisión y el negocio cobra su precio normal. Se le paga al vendedor cuando el pedido está liquidado.</p>
+        <div class="fila">
+          <div class="campo"><label for="aj-cg">General %</label><input type="number" id="aj-cg" name="general" min="0" max="60" step="0.5" value="${aj.comisiones.general}"></div>
+          <div class="campo"><label for="aj-cr">Recompra %</label><input type="number" id="aj-cr" name="recompra" min="0" max="60" step="0.5" value="${aj.comisiones.recompra}"></div>
+          <div class="campo"><label for="aj-cv">Recompras que cuentan</label><input type="number" id="aj-cv" name="recompraVeces" min="0" max="20" value="${aj.comisiones.recompraVeces}"></div>
+        </div>
+        <div class="etiqueta" style="margin-bottom:6px">Porcentaje especial por categoría (vacío = el general)</div>
+        <div class="fila">${[...new Set([...A.precios.categorias(), 'Playeras'])].map((k, i) => `<div class="campo" style="flex:1 1 140px"><label for="aj-cc${i}">${esc(k)}</label><input type="number" id="aj-cc${i}" data-cat="${esc(k)}" min="0" max="60" step="0.5" value="${aj.comisiones.categorias[k] ?? ''}" placeholder="${aj.comisiones.general}"></div>`).join('')}</div>
+        <div class="campo"><label for="aj-cp">Por producto (clave=porcentaje, separados por coma)</label><input type="text" id="aj-cp" name="productos" value="${esc(Object.entries(aj.comisiones.productos).map(([k, v]) => `${k}=${v}`).join(', '))}" placeholder="TAB5=17, TAB6=17"></div>
+        <button class="btn primario">Guardar</button>
+      </form>
+
+      <form class="tarjeta" id="aj-pago"><h2>Datos para que te paguen</h2>
+        <p class="chico tenue" style="margin-top:-6px">Salen en la nota y en la cotización, para que el cliente pague directo al negocio (también cuando el pedido lo trae un vendedor).</p>
+        <div class="fila">
+          <div class="campo"><label for="aj-pb">Banco</label><input type="text" id="aj-pb" name="banco" value="${esc(aj.pago.banco)}"></div>
+          <div class="campo"><label for="aj-pt">Titular de la cuenta</label><input type="text" id="aj-pt" name="titular" value="${esc(aj.pago.titular)}"></div>
+        </div>
+        <div class="fila">
+          <div class="campo"><label for="aj-pc">CLABE (18 dígitos)</label><input type="text" id="aj-pc" name="clabe" inputmode="numeric" maxlength="22" value="${esc(aj.pago.clabe)}"></div>
+          <div class="campo"><label for="aj-ptj">Tarjeta para depósito (opcional)</label><input type="text" id="aj-ptj" name="tarjeta" inputmode="numeric" maxlength="22" value="${esc(aj.pago.tarjeta)}"></div>
+        </div>
+        <div class="campo"><label for="aj-pl">Liga de pago (opcional: Mercado Pago, Clip…)</label><input type="url" id="aj-pl" name="liga" value="${esc(aj.pago.liga)}" placeholder="https://"></div>
         <button class="btn primario">Guardar</button>
       </form>`;
   }
@@ -115,8 +142,26 @@
       e.preventDefault();
       const d = u.datosForm(e.target);
       const v = k => d[k] === '' ? null : Number(d[k]);
-      A.db.guardarAjustes({ costoTecnica: { DTF: v('DTF'), Vinil: v('Vinil'), Sublimación: v('Sublimación') }, costoPlayeraDesdeMayoreo: d.costoPlayeraDesdeMayoreo });
+      A.costos.guardarGeneral({ tecnicas: { DTF: v('DTF'), Vinil: v('Vinil'), Sublimación: v('Sublimación') }, playeraDesdeMayoreo: d.costoPlayeraDesdeMayoreo });
       A.aviso('Costos guardados');
+    });
+    c.querySelector('#aj-comisiones').addEventListener('submit', e => {
+      e.preventDefault();
+      const d = u.datosForm(e.target);
+      const categorias = {};
+      e.target.querySelectorAll('[data-cat]').forEach(i => { if (i.value !== '') categorias[i.dataset.cat] = Number(i.value); });
+      const productos = {};
+      String(d.productos || '').split(',').forEach(par => { const [k, v] = par.split('='); if (k && v && Number.isFinite(Number(v))) productos[k.trim().toUpperCase()] = Number(v); });
+      A.db.guardarAjustes({ comisiones: { general: Number(d.general) || 0, recompra: Number(d.recompra) || 0, recompraVeces: Number(d.recompraVeces) || 0, categorias, productos } });
+      A.aviso('Comisiones guardadas');
+    });
+    c.querySelector('#aj-pago').addEventListener('submit', e => {
+      e.preventDefault();
+      const d = u.datosForm(e.target);
+      if (d.clabe && u.soloDigitos(d.clabe).length !== 18) return A.aviso('La CLABE debe tener 18 dígitos.');
+      if (d.liga && !/^https:\/\//.test(d.liga)) return A.aviso('La liga de pago debe empezar con https://');
+      A.db.guardarAjustes({ pago: { banco: d.banco, titular: d.titular, clabe: u.soloDigitos(d.clabe), tarjeta: u.soloDigitos(d.tarjeta), liga: d.liga } });
+      A.aviso('Datos de pago guardados');
     });
     c.querySelector('#aj-exp').addEventListener('click', () => {
       const blob = new Blob([JSON.stringify(A.db.exportar(), null, 1)], { type: 'application/json' });
@@ -147,7 +192,7 @@
       cuerpo.innerHTML = `
         ${p.sinTabla ? '<div class="nota-alerta">Tu base de datos tiene la versión anterior. Vuelve a correr <strong>supabase.sql</strong> en Supabase para activar el equipo y los permisos.</div>' : ''}
         <div class="dato"><span>Nombre</span><strong>${esc(A.sync.nombreUsuario())}</strong></div>
-        <div class="dato"><span>Rol</span><span>${p.rol === 'dueno' ? 'Dueño · ve todo' : 'Colaborador · pedidos, cotizaciones y clientes'}</span></div>
+        <div class="dato"><span>Rol</span><span>${{ dueno: 'Dueño · ve todo', vendedor: 'Vendedor · tus clientes, cotizaciones, pedidos y comisiones' }[p.rol] || 'Colaborador · pedidos, cotizaciones y clientes'}</span></div>
         <div class="dato"><span>Correo</span><span>${esc(A.sync.correo() || '')}</span></div>
         <div class="dato"><span>Estado</span><span>${esc(est.mensaje)}</span></div>
         <div class="dato"><span>Última vez</span><span>${esc(u.fechaHora(est.ultima))}</span></div>
@@ -230,7 +275,9 @@
             <div class="campo" style="flex:1 1 130px;margin:0"><label>Rol</label><select name="rol">
               <option value="pendiente" ${p.rol === 'pendiente' ? 'selected' : ''}>Sin acceso</option>
               <option value="colaborador" ${p.rol === 'colaborador' ? 'selected' : ''}>Colaborador</option>
+              <option value="vendedor" ${p.rol === 'vendedor' ? 'selected' : ''}>Vendedor (externo)</option>
               <option value="dueno" ${p.rol === 'dueno' ? 'selected' : ''}>Dueño</option></select></div>
+            <div class="campo" style="flex:0 1 90px;margin:0" ${p.rol === 'vendedor' ? '' : 'hidden'} data-codigo><label>Código</label><input type="text" name="codigo" maxlength="4" value="${esc(p.codigo || '')}" placeholder="JV"></div>
             <button class="btn">Guardar</button>
           </div>
           <div class="chico tenue" style="margin-top:4px">${esc(p.email || '')}${p.rol === 'pendiente' ? ' · <strong style="color:var(--ambar)">Esperando tu aprobación</strong>' : ''}</div>
@@ -253,14 +300,18 @@
         <strong>Cuando entre, apruébalo aquí arriba.</strong>
         <div class="chico tenue">Aparece en la lista como <em>Sin acceso</em> (no ve nada todavía). Cámbialo a <strong>Colaborador</strong>, escribe su nombre y toca <strong>Guardar</strong>.</div>
         <button type="button" class="btn chico" style="margin-top:6px" id="eq-actualizar">Actualizar lista</button></div></div>
-      <p class="chico tenue" style="margin-top:10px">Los colaboradores ven pedidos, cotizaciones, clientes, precios y la calculadora. No ven costos, ganancias, Desempeño, gastos ni Ajustes, y no pueden borrar ni cambiar precios. Para quitarle el acceso a alguien, ponle <strong>Sin acceso</strong> aquí o bórralo en Supabase → Authentication → Users.</p>`;
+      <p class="chico tenue" style="margin-top:10px"><strong>Colaborador</strong> (empleado): ve pedidos, cotizaciones, clientes, precios y la calculadora; no ve costos, ganancias, Desempeño, gastos ni Ajustes, y no puede borrar ni cambiar precios. <strong>Vendedor</strong> (externo): solo ve los pedidos, cotizaciones y clientes que él registra, ve los precios con su comisión incluida y sus comisiones; no ve tu cartera de clientes ni ningún costo. Para quitarle el acceso a alguien, ponle <strong>Sin acceso</strong> aquí o bórralo en Supabase → Authentication → Users.</p>`;
+    // El código (prefijo de folios) solo aplica a vendedores.
+    cuerpo.querySelectorAll('.miembro select[name=rol]').forEach(sel => sel.addEventListener('change', () => {
+      sel.closest('.miembro').querySelector('[data-codigo]').hidden = sel.value !== 'vendedor';
+    }));
     cuerpo.querySelectorAll('.miembro').forEach(f => f.addEventListener('submit', async e => {
       e.preventDefault();
       const d = u.datosForm(f);
       const duenos = lista.filter(p => p.rol === 'dueno' && p.id !== f.dataset.id).length;
       if (d.rol !== 'dueno' && duenos === 0) { f.rol.value = 'dueno'; return A.aviso('Debe quedar al menos un dueño.'); }
       try {
-        await A.sync.actualizarPerfil(f.dataset.id, { nombre: d.nombre, rol: d.rol });
+        await A.sync.actualizarPerfil(f.dataset.id, { nombre: d.nombre, rol: d.rol, codigo: (d.codigo || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || null });
         A.aviso('Guardado');
         pintarEquipo(cuerpo);
       } catch (err) { A.aviso('No se pudo guardar: ' + err.message); }

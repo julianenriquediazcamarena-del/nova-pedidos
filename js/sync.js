@@ -104,7 +104,7 @@
     // Una cuenta pendiente de aprobar no sube nada.
     const rol = A.sync.rol();
     if (rol === 'pendiente') return 0;
-    const permitidas = rol === 'colaborador' ? COLECCIONES_COLABORADOR : null;
+    const permitidas = rol === 'dueno' ? null : COLECCIONES_COLABORADOR;
     Object.keys(pend).filter(col => !permitidas || permitidas.includes(col)).forEach(col => Object.keys(pend[col]).forEach(id => {
       const r = A.db.registroCrudo(col, id);
       if (r) filas.push({ coleccion: col, id, datos: r, actualizado: r.actualizado, borrado: !!r._borrado });
@@ -187,6 +187,22 @@
       fijarPerfil(null);
       fijarEstado('local', 'Sesión cerrada');
     },
+    // ---- Archivos (fotos de pedidos) en la carpeta privada "adjuntos" de Supabase Storage ----
+    async archivo(metodo, ruta, cuerpo, tipo) {
+      const c = config();
+      if (!c || !sesion()) throw new Error('Entra con tu cuenta para usar fotos');
+      const r = await fetch(`${c.url}/storage/v1/object/${metodo === 'GET' ? 'authenticated/' : ''}adjuntos/${ruta}`, {
+        method: metodo,
+        headers: { apikey: c.clave, Authorization: 'Bearer ' + (await token()), ...(tipo ? { 'Content-Type': tipo, 'x-upsert': 'false' } : {}) },
+        body: cuerpo,
+      });
+      if (!r.ok) {
+        let msg = `Error ${r.status}`;
+        try { const d = await r.json(); msg = d.message || d.error || msg; } catch { /* sin cuerpo */ }
+        throw new Error(msg);
+      }
+      return r;
+    },
     // ---- Equipo (solo el dueño puede ver a todos y cambiarlos) ----
     async equipo() { return pedir('/rest/v1/perfiles?select=id,email,nombre,rol,creado&order=creado.asc'); },
     async actualizarPerfil(id, cambios) {
@@ -204,6 +220,7 @@
           if (A.sync.rol() === 'pendiente') { fijarEstado('pendiente', 'Tu cuenta espera la aprobación del dueño'); return; }
           await bajar();
           await subirCatalogoSiFalta();
+          if (A.sync.rol() === 'dueno') { A.costos.migrar(); A.comisiones.actualizarRegistros(); }
           await subir();
           A.db.escribirMeta('ultimaSync', A.u.ahora());
           fijarEstado('ok', 'Sincronizado');

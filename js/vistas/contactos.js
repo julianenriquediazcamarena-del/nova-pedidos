@@ -87,7 +87,7 @@
           .sort((a, b) => pref.filtro === 'inactivos' ? (a.ultima || '').localeCompare(b.ultima || '') : a.x.nombre.localeCompare(b.x.nombre, 'es'));
         c.querySelector('#ct-lista').innerHTML = lista.length ? `<div class="lista">${lista.map(({ x, suyos, saldo, ultima }) => `
           <a class="renglon" href="#/contacto/${x.id}"><div class="principal"><div class="titulo">${esc(x.nombre)}</div>
-            <div class="detalle">${esc([x.telefono, x.giro, x.origen].filter(Boolean).join(' · ') || 'Sin datos')}</div></div>
+            <div class="detalle">${esc([x.telefono, x.giro, x.origen, x.vendedorNombre && !A.esVendedor() ? 'Cliente de ' + x.vendedorNombre : ''].filter(Boolean).join(' · ') || 'Sin datos')}</div></div>
             <div class="derecha">${esCliente ? `<div class="detalle">${suyos.length} pedido${suyos.length === 1 ? '' : 's'}${ultima ? ` · última compra ${esc(u.relativo(ultima).toLowerCase())}` : ''}</div>` : ''}
             ${saldo > 0 ? `<div class="detalle" style="color:var(--rojo-vivo)">Debe ${u.dinero(saldo)}</div>` : ''}</div></a>`).join('')}</div>`
           : `<div class="vacio">${pref.q || pref.filtro !== 'todos' ? 'Nadie aquí.' : esCliente ? 'Aún no hay clientes. Se agregan solos al crear pedidos o cotizaciones.' : 'Agrega a tus maquiladores y proveedores.'}</div>`;

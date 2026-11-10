@@ -3,7 +3,7 @@
   const u = A.u;
   const esc = u.esc;
   const K = () => A.kpis;
-  const PESTANAS = [['resumen', 'Resumen'], ['clientes', 'Clientes'], ['bitacora', 'Bitácora'], ['gastos', 'Gastos']];
+  const PESTANAS = [['resumen', 'Resumen'], ['clientes', 'Clientes'], ['bitacora', 'Bitácora'], ['gastos', 'Gastos'], ['matriz', 'Matriz BCG']];
   const TIPOS_ESTRATEGIA = ['Promoción o descuento', 'Publicidad pagada', 'Publicaciones en redes', 'Precio nuevo', 'Producto o servicio nuevo',
     'Atención o proceso', 'Volanteo o visitas', 'Alianza o convenio', 'Otro'];
   const CATEGORIAS_GASTO = ['Material e insumos', 'Maquila', 'Renta', 'Luz, agua e internet', 'Sueldos', 'Publicidad', 'Mantenimiento y equipo', 'Otro'];
@@ -410,5 +410,167 @@
     });
   }
 
-  const VISTAS = { resumen, clientes, bitacora, gastos };
+  // ---------------------------------------------------------------- Matriz BCG
+  // Cruza el crecimiento del mercado (investigación, editable) con la fuerza de Nova en cada categoría.
+  // Mientras haya pocas ventas en la app, la fuerza sale de la investigación; con 30 pedidos o más en
+  // 6 meses, sale de las ventas reales (cuánto vende cada categoría frente a la que más vende).
+  // Los datos viven en la colección privada "costos" (registro "mercado"): solo el dueño los ve.
+  const CUADRANTES = {
+    estrella: { t: 'Estrella', ico: '★', color: '#c9a227', consejo: 'Crece y aquí eres fuerte: métele publicidad, ten material a la mano y entrega rápido.' },
+    incognita: { t: 'Incógnita', ico: '?', color: '#4f7fd1', consejo: 'El mercado crece pero aún vendes poco: prueba con una campaña o paquete pequeño. Si responde, sube a estrella; si no, déjalo bajo pedido.' },
+    vaca: { t: 'Vaca lechera', ico: '$', color: '#2f9e6b', consejo: 'Vende parejo y deja dinero: cuida el margen y la rapidez sin gastar de más en anuncios. Úsalo para atraer clientes y ofrecerles lo demás.' },
+    perro: { t: 'Perro', ico: '·', color: '#8a8a8a', consejo: 'Poco crecimiento y poca venta: solo bajo pedido o como complemento, sin publicidad ni inventario.' },
+  };
+  const ORDEN_CUADRANTE = ['estrella', 'incognita', 'vaca', 'perro'];
+  const PEDIDOS_SUFICIENTES = 30;
+
+  function datosMatriz() {
+    const m = A.db.obtener('costos', 'mercado');
+    if (!m || !m.categorias) return null;
+    const hoy = u.hoy();
+    const p1 = { inicio: u.sumarDias(hoy, -181), fin: hoy };
+    const p0 = { inicio: u.sumarDias(hoy, -363), fin: u.sumarDias(hoy, -182) };
+    const stats = new Map();
+    const de = k => { if (!stats.has(k)) stats.set(k, { ventas: 0, previas: 0, conCosto: 0, costo: 0, pedidos: new Set() }); return stats.get(k); };
+    let pedidos1 = 0;
+    A.db.todos('pedidos').filter(x => x.estado !== 'cancelado').forEach(x => {
+      const enP1 = K().dentro(x.fechaRecibido, p1), enP0 = K().dentro(x.fechaRecibido, p0);
+      if (enP1) pedidos1++;
+      (x.lineas || []).forEach(l => {
+        const imp = (Number(l.cantidad) || 0) * (Number(l.precioUnit) || 0);
+        const e = de(K().categoriaLinea(l));
+        if (enP1) {
+          e.ventas += imp; e.pedidos.add(x.id);
+          const c = K().costoLinea(l);
+          if (c != null) { e.conCosto += imp / 1.16; e.costo += c; } // precios con IVA, costos sin IVA
+        } else if (enP0) e.previas += imp;
+      });
+    });
+    const maxVentas = Math.max(0, ...[...stats.values()].map(e => e.ventas));
+    const suficientes = pedidos1 >= PEDIDOS_SUFICIENTES;
+    const uC = Number(m.umbralCrecimiento ?? 5), uP = Number(m.umbralPosicion ?? 0.5);
+    const filas = Object.entries(m.categorias).map(([cat, r]) => {
+      const e = stats.get(cat) || { ventas: 0, previas: 0, conCosto: 0, costo: 0, pedidos: new Set() };
+      const crecimiento = Number(r.crecimiento) || 0;
+      const posicion = suficientes ? (maxVentas ? e.ventas / maxVentas : 0) : Math.min(1, Math.max(0, Number(r.posicion) || 0));
+      const cuadrante = crecimiento >= uC ? (posicion >= uP ? 'estrella' : 'incognita') : (posicion >= uP ? 'vaca' : 'perro');
+      return { cat, ...r, crecimiento, posicion, cuadrante, ventas: u.redondear(e.ventas), pedidos: e.pedidos.size,
+        propio: e.previas > 0 ? (e.ventas - e.previas) / e.previas : null,
+        margen: e.conCosto ? (e.conCosto - e.costo) / e.conCosto : null };
+    });
+    return { m, filas, suficientes, pedidos1, uC, uP, maxVentas };
+  }
+
+  function graficaMatriz({ filas, uC, uP, maxVentas }) {
+    const W = 640, H = 420, ml = 46, mr = 16, mt = 16, mb = 40;
+    const minY = Math.min(-6, ...filas.map(f => f.crecimiento - 1)), maxY = Math.max(12, ...filas.map(f => f.crecimiento + 1));
+    const x = v => ml + v * (W - ml - mr);
+    const y = v => mt + (maxY - v) / (maxY - minY) * (H - mt - mb);
+    const xm = x(uP), ym = y(uC);
+    const esq = (k, tx, ty, ancla) => `<text x="${tx}" y="${ty}" text-anchor="${ancla}" font-size="13" font-weight="700" fill="${CUADRANTES[k].color}">${CUADRANTES[k].ico} ${CUADRANTES[k].t}</text>`;
+    // Etiquetas: se recorren hacia abajo si chocan con otra ya puesta.
+    const puestas = [];
+    const puntos = filas.slice().sort((a, b) => b.ventas - a.ventas).map(f => {
+      const r = maxVentas && f.ventas ? 7 + 15 * Math.sqrt(f.ventas / maxVentas) : 8;
+      const cx = x(f.posicion), cy = y(f.crecimiento);
+      const nombre = f.cat.replace(/\s*\(.*\)/, '');
+      const ancho = nombre.length * 6.4;
+      const derecha = cx + r + 4 + ancho < W - mr;
+      const x0 = derecha ? cx + r + 4 : cx - r - 4 - ancho;
+      let ly = cy + 4;
+      for (let i = 0; i < 12 && puestas.some(p => Math.abs(p.y - ly) < 13 && x0 < p.x1 && x0 + ancho > p.x0); i++) ly += 13;
+      puestas.push({ x0, x1: x0 + ancho, y: ly });
+      return `<g><title>${esc(f.cat)} · crecimiento ${f.crecimiento}% · fuerza ${Math.round(f.posicion * 100)}%</title>
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="${CUADRANTES[f.cuadrante].color}" fill-opacity=".75" stroke="var(--superficie)" stroke-width="1.5"></circle>
+        <text x="${derecha ? x0 : x0 + ancho}" y="${ly}" text-anchor="${derecha ? 'start' : 'end'}" font-size="11.5" fill="var(--texto)">${esc(nombre)}</text></g>`;
+    }).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Matriz BCG por categoría" style="width:100%;height:auto;display:block">
+      <rect x="${xm}" y="${mt}" width="${W - mr - xm}" height="${ym - mt}" fill="#c9a227" fill-opacity=".07"></rect>
+      <rect x="${ml}" y="${mt}" width="${xm - ml}" height="${ym - mt}" fill="#4f7fd1" fill-opacity=".07"></rect>
+      <rect x="${xm}" y="${ym}" width="${W - mr - xm}" height="${H - mb - ym}" fill="#2f9e6b" fill-opacity=".07"></rect>
+      <rect x="${ml}" y="${ym}" width="${xm - ml}" height="${H - mb - ym}" fill="#8a8a8a" fill-opacity=".07"></rect>
+      <line x1="${xm}" y1="${mt}" x2="${xm}" y2="${H - mb}" stroke="var(--borde)" stroke-dasharray="4 4"></line>
+      <line x1="${ml}" y1="${ym}" x2="${W - mr}" y2="${ym}" stroke="var(--borde)" stroke-dasharray="4 4"></line>
+      ${y(0) > mt && y(0) < H - mb ? `<text x="${ml - 6}" y="${y(0) + 4}" text-anchor="end" font-size="11" fill="var(--texto-2)">0%</text>` : ''}
+      <text x="${ml - 6}" y="${ym + 4}" text-anchor="end" font-size="11" fill="var(--texto-2)">${uC}%</text>
+      <text x="${ml - 6}" y="${mt + 10}" text-anchor="end" font-size="11" fill="var(--texto-2)">${Math.round(maxY)}%</text>
+      <text x="${ml}" y="${H - mb + 16}" font-size="11" fill="var(--texto-2)">Débil</text>
+      <text x="${W - mr}" y="${H - mb + 16}" text-anchor="end" font-size="11" fill="var(--texto-2)">Fuerte</text>
+      <text x="${(ml + W - mr) / 2}" y="${H - 6}" text-anchor="middle" font-size="12" fill="var(--texto-2)">Qué tan fuerte es Nova en esa categoría →</text>
+      <text transform="translate(12 ${(mt + H - mb) / 2}) rotate(-90)" text-anchor="middle" font-size="12" fill="var(--texto-2)">Crecimiento del mercado (% al año) →</text>
+      ${esq('incognita', ml + 8, mt + 18, 'start')}${esq('estrella', W - mr - 8, mt + 18, 'end')}
+      ${esq('perro', ml + 8, H - mb - 10, 'start')}${esq('vaca', W - mr - 8, H - mb - 10, 'end')}
+      ${puntos}
+    </svg>`;
+  }
+
+  function matriz(cont, repintar) {
+    if (!A.esDueno()) { cont.innerHTML = '<div class="vacio">Solo el dueño ve la matriz.</div>'; return; }
+    const d = datosMatriz();
+    if (!d) {
+      cont.innerHTML = `<div class="tarjeta"><h2>Matriz BCG</h2>
+        <p>Clasifica cada categoría en <strong>estrella, vaca lechera, incógnita o perro</strong> según cuánto crece su mercado y qué tan fuerte es Nova en ella.</p>
+        <p class="chico tenue">Carga el archivo <strong>costos-y-mercado-nova-pedidos.json</strong> (lo tienes en la carpeta del negocio, no se publica). Trae la investigación de mercado y los costos estimados; los costos que ya hayas capturado no se tocan.</p>
+        <label class="btn primario" style="margin-top:8px">Cargar archivo<input type="file" accept=".json,application/json" hidden id="mx-imp"></label></div>`;
+      cont.querySelector('#mx-imp').addEventListener('change', async e => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try { A.db.importar(JSON.parse(await f.text())); A.aviso('Investigación y costos cargados'); repintar(); } catch (err) { A.aviso('No se pudo cargar: ' + err.message); }
+      });
+      return;
+    }
+    const grupos = ORDEN_CUADRANTE.map(k => [k, d.filas.filter(f => f.cuadrante === k).sort((a, b) => b.ventas - a.ventas || b.crecimiento - a.crecimiento)]);
+    const fmtPct = v => v == null ? '—' : `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`;
+    cont.innerHTML = `
+      <div class="tarjeta">
+        <div class="cabeza" style="margin-bottom:6px"><div><h2 style="margin:0">Matriz BCG por categoría</h2>
+          <div class="subtitulo chico">${d.suficientes
+            ? `La fuerza sale de tus ventas de los últimos 6 meses (${d.pedidos1} pedidos). El crecimiento, de la investigación.`
+            : `Con pocas ventas en la app (${d.pedidos1} pedidos en 6 meses), la fuerza sale de la investigación. A partir de ${PEDIDOS_SUFICIENTES} pedidos se calcula con tus ventas reales.`}</div></div>
+          <span class="chico tenue">Investigación del ${esc(u.fecha(d.m.fecha))}</span></div>
+        ${graficaMatriz(d)}
+        <p class="chico tenue" style="margin-top:6px">El tamaño del círculo es lo vendido en 6 meses. ${esc(d.m.fuentes || '')}</p>
+      </div>
+      ${grupos.filter(([, l]) => l.length).map(([k, lista]) => `
+        <div class="tarjeta">
+          <h2 style="color:${CUADRANTES[k].color}">${CUADRANTES[k].ico} ${CUADRANTES[k].t}</h2>
+          <p class="chico" style="margin-top:-4px">${CUADRANTES[k].consejo}</p>
+          <div class="tabla-envoltura"><table><thead><tr><th>Categoría</th><th class="der">Mercado</th><th class="der">Fuerza</th><th class="der">Ventas 6 m</th><th class="der">Tu cambio</th><th class="der">Margen</th></tr></thead><tbody>
+            ${lista.map(f => `<tr data-cat="${esc(f.cat)}" style="cursor:pointer" title="Toca para editar">
+              <td><strong>${esc(f.cat)}</strong><div class="chico tenue">${esc(f.nota || '')}</div></td>
+              <td class="der num">${f.crecimiento > 0 ? '+' : ''}${f.crecimiento}%</td>
+              <td class="der num">${Math.round(f.posicion * 100)}%</td>
+              <td class="der num">${f.ventas ? pesos(f.ventas) : '—'}</td>
+              <td class="der num">${fmtPct(f.propio)}</td>
+              <td class="der num">${f.margen == null ? '—' : Math.round(f.margen * 100) + '%'}</td></tr>`).join('')}
+          </tbody></table></div>
+        </div>`).join('')}
+      <p class="chico tenue">“Mercado”: cuánto crece la demanda al año (investigación, editable). “Tu cambio”: tus ventas de los últimos 6 meses contra los 6 anteriores. “Margen”: estimado con los costos del catálogo. Toca una categoría para ajustar sus datos.</p>`;
+    cont.querySelectorAll('[data-cat]').forEach(tr => tr.addEventListener('click', () => editarMercado(d.m, tr.dataset.cat, repintar)));
+  }
+
+  function editarMercado(m, cat, despues) {
+    const r = m.categorias[cat] || {};
+    A.modal.abrir(cat, `<form id="fmx">
+      <div class="fila">
+        <div class="campo"><label for="mx-c">Crecimiento del mercado (% al año)</label><input type="number" id="mx-c" name="crecimiento" step="0.5" min="-50" max="100" value="${Number(r.crecimiento) || 0}" required></div>
+        <div class="campo"><label for="mx-p">Fuerza de Nova (0 a 100)</label><input type="number" id="mx-p" name="posicion" step="5" min="0" max="100" value="${Math.round((Number(r.posicion) || 0) * 100)}" required></div>
+      </div>
+      <div class="campo"><label for="mx-n">Nota</label><input type="text" id="mx-n" name="nota" value="${esc(r.nota || '')}"></div>
+      <p class="chico tenue">La fuerza se usa mientras haya menos de ${PEDIDOS_SUFICIENTES} pedidos en 6 meses; después se calcula con tus ventas.</p>
+      <div class="modal-pie"><button type="button" class="btn" data-cerrar>Cancelar</button><button class="btn primario">Guardar</button></div>
+    </form>`, {
+      alAbrir(el) {
+        el.querySelector('#fmx').addEventListener('submit', ev => {
+          ev.preventDefault();
+          const f = u.datosForm(ev.target);
+          const categorias = { ...m.categorias, [cat]: { ...r, crecimiento: Number(f.crecimiento) || 0, posicion: Math.min(1, Math.max(0, (Number(f.posicion) || 0) / 100)), nota: f.nota } };
+          A.db.guardar('costos', { ...m, categorias });
+          A.modal.cerrar(); A.aviso('Guardado'); despues();
+        });
+      },
+    });
+  }
+
+  const VISTAS = { resumen, clientes, bitacora, gastos, matriz };
 })(window.App);

@@ -1,11 +1,11 @@
 // Guarda los archivos de la app para que abra aunque no haya internet.
 // Al publicar cambios, sube el número de VERSION para que los dispositivos tomen la versión nueva.
-const VERSION = 'nova-pedidos-v13';
+const VERSION = 'nova-pedidos-v14';
 const ARCHIVOS = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/config.js', 'js/util.js', 'js/db.js', 'js/sync.js', 'js/precios.js', 'js/kpis.js', 'js/graficas.js', 'js/playeras.js', 'js/lineas.js', 'js/nota-imagen.js', 'js/app.js',
+  'js/config.js', 'js/util.js', 'js/db.js', 'js/sync.js', 'js/precios.js', 'js/kpis.js', 'js/costos.js', 'js/comisiones.js', 'js/adjuntos.js', 'js/factura.js', 'js/graficas.js', 'js/playeras.js', 'js/lineas.js', 'js/nota-imagen.js', 'js/app.js',
   'js/vistas/panel.js', 'js/vistas/catalogo.js', 'js/vistas/calculadora.js', 'js/vistas/cotizaciones.js',
-  'js/vistas/pedidos.js', 'js/vistas/contactos.js', 'js/vistas/ajustes.js', 'js/vistas/desempeno.js',
+  'js/vistas/pedidos.js', 'js/vistas/contactos.js', 'js/vistas/ajustes.js', 'js/vistas/desempeno.js', 'js/vistas/comisiones.js',
   'img/wordmark.png', 'img/isotipo.png', 'icons/icono-192.png', 'icons/icono-512.png',
   'fonts/inter-latin-400-normal.woff2', 'fonts/inter-latin-600-normal.woff2', 'fonts/poppins-latin-700-normal.woff2',
 ];
