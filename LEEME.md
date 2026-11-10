@@ -90,7 +90,23 @@ Opcional: si pones la URL y la clave en `js/config.js` y vuelves a publicar, nad
 ### Qué puede hacer cada quien
 
 - **Dueño:** todo.
-- **Colaborador:** ve y maneja pedidos, cotizaciones, clientes, precios (solo consulta) y la calculadora. No ve costos, ganancias, Desempeño, gastos ni Ajustes; no puede borrar, quitar pagos ni cambiar precios. Gastos y bitácora además están protegidos en la base: aunque alguien lo intente, el servidor no se los entrega.
+- **Colaborador:** ve y maneja pedidos, cotizaciones, clientes, precios (solo consulta) y la calculadora. No ve costos, ganancias, Desempeño, gastos ni Ajustes; no puede borrar, quitar pagos ni cambiar precios. Gastos, bitácora, costos y comisiones además están protegidos en la base: aunque alguien lo intente, el servidor no se los entrega.
+- **Vendedor (externo, por comisión):** crea clientes, cotizaciones y pedidos, y ve los precios con su comisión ya incluida. **Solo ve lo que él creó**: la base no le entrega los clientes ni los pedidos del negocio, ni ningún costo. Sus folios llevan su código (ej. `P-JV-0001`). No registra pagos: el cliente le paga directo al negocio. En **Comisiones** ve cuánto lleva y cuánto ya se le pagó.
+
+### Vendedores y comisiones
+
+1. Crea su usuario igual que un colaborador y en **Ajustes → Equipo** ponle el rol **Vendedor (externo)** y un código corto (sus iniciales).
+2. En **Ajustes → Comisiones de vendedores** están los porcentajes: 15% general, 17% en termos, vinil y lona y etiquetas recortadas (TAB5, TAB6), y 10% de recompra en las siguientes 3 compras de un cliente que trajo él.
+3. La comisión se suma al precio que ve el vendedor (el negocio recibe su precio normal) y se paga cuando el pedido queda **liquidado**. En **Comisiones** marcas las que ya le pagaste.
+
+### Fotos y factura
+
+- Cada pedido tiene **fotos** (logo, dibujo, nota del cliente). Se achican en el celular y se guardan en una carpeta privada de Supabase; un vendedor solo ve las que él subió.
+- Si el cliente **requiere factura**, se capturan sus datos fiscales (o se sube la foto de su constancia) y **Hoja para el contador** arma la imagen para mandársela. Los datos se quedan en el cliente para la próxima. El filtro **Por facturar** muestra lo pendiente.
+
+### Costos y matriz BCG (solo el dueño)
+
+Los costos viven en una colección privada que solo el dueño puede leer. El archivo `costos-y-mercado-nova-pedidos.json` (fuera del repositorio, no se publica) trae costos estimados y la investigación de mercado: se carga en **Desempeño → Matriz BCG** o en **Ajustes → Respaldo**. No pisa los costos que ya hayas capturado.
 
 ### Seguridad
 
