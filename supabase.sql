@@ -130,6 +130,10 @@ create policy "cambiar registros" on public.registros
   using (public.es_dueno() or (public.es_miembro() and coleccion in ('pedidos', 'cotizaciones', 'contactos')))
   with check (public.es_dueno() or (public.es_miembro() and coleccion in ('pedidos', 'cotizaciones', 'contactos') and not borrado));
 
+-- Permisos de tabla: solo usuarios con sesión, y solo lo necesario (las reglas de arriba deciden qué filas).
 -- Sin sesión (clave pública sola) no se puede leer ni escribir nada.
-revoke all on public.registros from anon;
-revoke all on public.perfiles from anon;
+grant usage on schema public to authenticated;
+revoke all on public.registros from anon, authenticated;
+revoke all on public.perfiles from anon, authenticated;
+grant select, insert, update on public.registros to authenticated;
+grant select, update (nombre, rol) on public.perfiles to authenticated;

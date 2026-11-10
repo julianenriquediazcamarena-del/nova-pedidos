@@ -1,6 +1,6 @@
 // Guarda los archivos de la app para que abra aunque no haya internet.
 // Al publicar cambios, sube el número de VERSION para que los dispositivos tomen la versión nueva.
-const VERSION = 'nova-pedidos-v10';
+const VERSION = 'nova-pedidos-v11';
 const ARCHIVOS = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/config.js', 'js/util.js', 'js/db.js', 'js/sync.js', 'js/precios.js', 'js/kpis.js', 'js/graficas.js', 'js/playeras.js', 'js/lineas.js', 'js/nota-imagen.js', 'js/app.js',
